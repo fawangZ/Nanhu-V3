@@ -467,16 +467,16 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
 
   def fromFtbEntry(entry: FTBEntry, pc: UInt, last_stage: Option[Tuple2[UInt, Bool]] = None) = {
     // slot_valids := entry.brSlots.map(_.valid) :+ entry.tailSlot.valid
-    slot_valids := entry.tailSlot.valid
-    targets := entry.getTargetVec(pc)
+    slot_valids := entry.valid
+    targets := entry.getTarget(pc)
     jalr_target := targets
-    offsets := entry.getOffsetVec
-    is_jal := entry.tailSlot.valid && entry.isJal
-    is_jalr := entry.tailSlot.valid && entry.isJalr
-    is_call := entry.tailSlot.valid && entry.isCall
-    is_ret := entry.tailSlot.valid && entry.isRet
+    offsets := entry.offset
+    is_jal := entry.valid && entry.isJal
+    is_jalr := entry.valid && entry.isJalr
+    is_call := entry.valid && entry.isCall
+    is_ret := entry.valid && entry.isRet
     last_may_be_rvi_call := entry.last_may_be_rvi_call
-    is_br_sharing := entry.tailSlot.valid && entry.tailSlot.sharing
+    is_br_sharing := entry.valid && entry.sharing
     
     val startLower        = Cat(0.U(1.W),    pc(instOffsetBits+log2Ceil(PredictWidth)-1, instOffsetBits))
     val endLowerwithCarry = Cat(entry.carry, entry.pftAddr)
@@ -575,10 +575,10 @@ class BranchPredictionUpdate(implicit p: Parameters) extends XSBundle with HasBP
   val from_stage = UInt(2.W)
   val ghist = UInt(HistoryLength.W)
 
-  def is_jal = ftb_entry.tailSlot.valid && ftb_entry.isJal
-  def is_jalr = ftb_entry.tailSlot.valid && ftb_entry.isJalr
-  def is_call = ftb_entry.tailSlot.valid && ftb_entry.isCall
-  def is_ret = ftb_entry.tailSlot.valid && ftb_entry.isRet
+  def is_jal = ftb_entry.valid && ftb_entry.isJal
+  def is_jalr = ftb_entry.valid && ftb_entry.isJalr
+  def is_call = ftb_entry.valid && ftb_entry.isCall
+  def is_ret = ftb_entry.valid && ftb_entry.isRet
 
 }
 
