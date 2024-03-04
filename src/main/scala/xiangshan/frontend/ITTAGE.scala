@@ -155,7 +155,7 @@ class ITTageTable
       val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).folded_hist
       // require(idx_fh.getWidth == log2Ceil(nRows))
       val idx = (unhashed_idx ^ idx_fh)(log2Ceil(nRows)-1, 0)
-      val tag = ((unhashed_idx >> log2Ceil(nRows)) ^ tag_fh ^ (alt_tag_fh << 1)) (tagLen - 1, 0)
+      val tag = ((unhashed_idx >> log2Ceil(nRows)).asUInt ^ tag_fh ^ (alt_tag_fh << 1).asUInt)(tagLen - 1, 0)
       (idx, tag)
     }
     else {
@@ -371,7 +371,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   val update = io.update(dupForIttage).bits
   val updateValid =
     update.is_jalr && !update.is_ret && u_valid && update.ftb_entry.jmpValid &&
-    update.jmp_taken && update.cfi_idx.valid && update.cfi_idx.bits === update.ftb_entry.tailSlot.offset//#2015
+    update.jmp_taken && update.cfi_idx.valid && update.cfi_idx.bits === update.ftb_entry.offset//#2015
   val updateFhist = update.spec_info.folded_hist
 
   // meta is splited by composer
@@ -466,7 +466,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   resp_meta.taken             := s3_tageTaken_dup(dupForIttage)
   resp_meta.providerTarget    := s3_providerTarget
   resp_meta.altProviderTarget := s3_altProviderTarget
-  resp_meta.pred_cycle.map(_:= GTimer())
+  resp_meta.pred_cycle.foreach(_:= GTimer())
   // TODO: adjust for ITTAGE
   // Create a mask fo tables which did not hit our query, and also contain useless entries
   // and also uses a longer history than the provider

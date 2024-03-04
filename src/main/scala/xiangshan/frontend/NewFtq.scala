@@ -255,19 +255,18 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   // tag is left for ftb to assign
 
   // case br
-  val init_br_slot = init_entry.tailSlot
   when (cfi_is_br) {
-    init_br_slot.valid := true.B
-    init_br_slot.offset := io.cfiIndex.bits
-    init_br_slot.setLowerStatByTarget(io.start_addr, io.target, isShare = true)
+    init_entry.valid := true.B
+    init_entry.offset := io.cfiIndex.bits
+    init_entry.setLowerStatByTarget(io.start_addr, io.target, isShare = true)
     init_entry.always_taken := true.B // set to always taken on init
   }
 
   // case jmp
   when (entry_has_jmp) {
-    init_entry.tailSlot.offset := pd.jmpOffset
-    init_entry.tailSlot.valid := new_jmp_is_jal || new_jmp_is_jalr
-    init_entry.tailSlot.setLowerStatByTarget(io.start_addr, Mux(cfi_is_jalr, io.target, pd.jalTarget), isShare=false)
+    init_entry.offset := pd.jmpOffset
+    init_entry.valid := new_jmp_is_jal || new_jmp_is_jalr
+    init_entry.setLowerStatByTarget(io.start_addr, Mux(cfi_is_jalr, io.target, pd.jalTarget), isShare=false)
   }
 
   val jmpPft = getLower(io.start_addr) +& pd.jmpOffset +& Mux(pd.rvcMask(pd.jmpOffset), 1.U, 2.U)
@@ -284,20 +283,17 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   val br_recorded = oe.getBrRecordedVec(io.cfiIndex.bits)
   val is_new_br = cfi_is_br && !br_recorded
   val new_br_offset = io.cfiIndex.bits
-  // vec(i) means new br will be inserted BEFORE old br(i)
-  val allBrSlotsVec: FtbSlot = oe.allSlotsForBr
 
   /** slot empty or lower branch */
-  val new_br_insert_onehot: Bool = !allBrSlotsVec.valid || new_br_offset < allBrSlotsVec.offset
+  val new_br_insert_onehot: Bool = !oe.valid || new_br_offset < oe.offset
 
   val old_entry_modified = WireInit(io.old_entry)
-  val slot = old_entry_modified.allSlotsForBr
   when (new_br_insert_onehot) {
-    slot.valid := true.B
-    slot.offset := new_br_offset
-    slot.setLowerStatByTarget(io.start_addr, io.target, isShare = true)
+    old_entry_modified.valid := true.B
+    old_entry_modified.offset := new_br_offset
+    old_entry_modified.setLowerStatByTarget(io.start_addr, io.target, isShare = true)
     old_entry_modified.always_taken := true.B
-  }.elsewhen (new_br_offset > oe.allSlotsForBr.offset) {
+  }.elsewhen (new_br_offset > oe.offset) {
     old_entry_modified.always_taken := false.B
     // all other fields remain unchanged
   }
@@ -312,7 +308,7 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   when (pft_need_to_change) {
     val new_pft_offset =
       Mux(!new_br_insert_onehot,
-        new_br_offset, oe.allSlotsForBr.offset)
+        new_br_offset, oe.offset)
 
     // set jmp to invalid
     old_entry_modified.pftAddr := getLower(io.start_addr) + new_pft_offset
@@ -324,11 +320,11 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   }
 
   val old_entry_jmp_target_modified = WireInit(oe)
-  val old_target = oe.tailSlot.getTarget(io.start_addr) // may be wrong because we store only 20 lowest bits
-  val old_tail_is_jmp = !oe.tailSlot.sharing
+  val old_target = oe.getTarget(io.start_addr) // may be wrong because we store only 20 lowest bits
+  val old_tail_is_jmp = !oe.sharing
   val jalr_target_modified = cfi_is_jalr && (old_target =/= io.target) && old_tail_is_jmp // TODO: pass full jalr target
   when (jalr_target_modified) {
-    old_entry_jmp_target_modified.setByJmpTarget(io.start_addr, io.target)
+    old_entry_jmp_target_modified.setLowerStatByTarget(io.start_addr, io.target)
     old_entry_jmp_target_modified.always_taken := 0.U.asTypeOf(Bool())
   }
 
@@ -350,7 +346,7 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   io.new_br_insert_pos := new_br_insert_onehot
   io.taken_mask := io.cfiIndex.bits === io.new_entry.brOffset && io.cfiIndex.valid && io.new_entry.brValids
 
-  io.jmp_taken := io.new_entry.jmpValid && io.new_entry.tailSlot.offset === io.cfiIndex.bits
+  io.jmp_taken := io.new_entry.jmpValid && io.new_entry.offset === io.cfiIndex.bits
 
   /** mispred_mask head means branch mistake,
    *  mispred_mask last means jump mistake
@@ -586,8 +582,8 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
         val perSetEntries = FtqSize / extra_copyNum_for_commitStateQueue // 32
         require(FtqSize % extra_copyNum_for_commitStateQueue == 0)
         for (j <- 0 until perSetEntries) {
-          when (ptr.value === (i*perSetEntries+j).U) {
-            commitStateQueue(i*perSetEntries+j) := VecInit(Seq.fill(PredictWidth)(c_invalid))
+          when (ptr.value === (i*perSetEntries + j).U) {
+            commitStateQueue(i*perSetEntries + j) := VecInit(Seq.fill(PredictWidth)(c_invalid))
           }
         }
       }
@@ -618,7 +614,7 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
     bpuPtr := bpu_s2_resp.ftq_idx + 1.U
     io.toIbuffer.bits := bpu_s2_resp.ftq_idx + 1.U
     io.toIbuffer.valid := true.B
-    copied_bpu_ptr.map(_ := bpu_s2_resp.ftq_idx + 1.U)
+    copied_bpu_ptr.foreach(_ := bpu_s2_resp.ftq_idx + 1.U)
     // only when ifuPtr runs ahead of bpu s2 resp should we recover it
     when (!isBefore(ifuPtr, bpu_s2_resp.ftq_idx)) {
       ifuPtr_write := bpu_s2_resp.ftq_idx
@@ -633,7 +629,7 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
     bpuPtr := bpu_s3_resp.ftq_idx + 1.U
     io.toIbuffer.valid := true.B
     io.toIbuffer.bits := bpu_s3_resp.ftq_idx + 1.U
-    copied_bpu_ptr.map(_ := bpu_s3_resp.ftq_idx + 1.U)
+    copied_bpu_ptr.foreach(_ := bpu_s3_resp.ftq_idx + 1.U)
     // only when ifuPtr runs ahead of bpu s2 resp should we recover it
     when (!isBefore(ifuPtr, bpu_s3_resp.ftq_idx)) {
       ifuPtr_write := bpu_s3_resp.ftq_idx
@@ -688,12 +684,12 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
   for(i <- 0 until copyNum){
     when(copied_last_cycle_bpu_in(i) && copied_bpu_in_bypass_ptr(i) === copied_ifu_ptr(i)){
       toICachePcBundle(i) := copied_bpu_in_bypass_buf(i)
-      toICacheEntryToSend(i)   := true.B 
+      toICacheEntryToSend(i)   := true.B
     }.elsewhen(copied_last_cycle_to_ifu_fire(i)){
       toICachePcBundle(i) := pc_mem_ifu_plus1_rdata(i)
       toICacheEntryToSend(i)   := copied_ifu_plus1_to_send(i)
     }.otherwise{
-      toICachePcBundle(i) := pc_mem_ifu_ptr_rdata(i) 
+      toICachePcBundle(i) := pc_mem_ifu_ptr_rdata(i)
       toICacheEntryToSend(i)   := copied_ifu_ptr_to_send(i)
     }
   }
@@ -731,13 +727,9 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
   io.toIfu.req.bits.fromFtqPcBundle(toIfuPcBundle)
 
   io.toICache.req.valid := entry_is_to_send && ifuPtr =/= bpuPtr
-  io.toICache.req.bits.readValid.zipWithIndex.map{case(copy, i) => copy := toICacheEntryToSend(i) && copied_ifu_ptr(i) =/= copied_bpu_ptr(i)} 
+  io.toICache.req.bits.readValid.zipWithIndex.foreach{case(copy, i) => copy := toICacheEntryToSend(i) && copied_ifu_ptr(i) =/= copied_bpu_ptr(i)}
   io.toICache.req.bits.pcMemRead.zipWithIndex.map{case(copy,i) => copy.fromFtqPcBundle(toICachePcBundle(i))}
-  // io.toICache.req.bits.bypassSelect := last_cycle_bpu_in && bpu_in_bypass_ptr === ifuPtr
-  // io.toICache.req.bits.bpuBypassWrite.zipWithIndex.map{case(bypassWrtie, i) =>
-  //   bypassWrtie.startAddr := bpu_in_bypass_buf.tail(i).startAddr
-  //   bypassWrtie.nextlineStart := bpu_in_bypass_buf.tail(i).nextLineAddr
-  // }
+
 
   // TODO: remove this
   XSError(io.toIfu.req.valid && diff_entry_next_addr =/= entry_next_addr,
@@ -805,18 +797,15 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
     // check for false hit
     val pred_ftb_entry = ftb_entry_mem.io.rdata.head
     // val brSlots = pred_ftb_entry.brSlots
-    val tailSlot = pred_ftb_entry.tailSlot
+
     // we check cfis that bpu predicted
 
     // bpu predicted branches but denied by predecode
     val br_false_hit =
-      // brSlots.map{
-      //   s => s.valid && !(pd_reg(s.offset).valid && pd_reg(s.offset).isBr)
-      // }.reduce(_||_) ||
-      (tailSlot.valid && pred_ftb_entry.tailSlot.sharing &&
-        !(pd_reg(tailSlot.offset).valid && pd_reg(tailSlot.offset).isBr))
+      pred_ftb_entry.valid && pred_ftb_entry.sharing &&
+        !(pd_reg(pred_ftb_entry.offset).valid && pd_reg(pred_ftb_entry.offset).isBr)
 
-    val jmpOffset = tailSlot.offset
+    val jmpOffset = pred_ftb_entry.offset
     val jmp_pd = pd_reg(jmpOffset)
     val jal_false_hit = pred_ftb_entry.jmpValid &&
       ((pred_ftb_entry.isJal  && !(jmp_pd.valid && jmp_pd.isJal)) ||
