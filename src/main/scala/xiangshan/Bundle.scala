@@ -81,7 +81,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val target = UInt(VAddrBits.W)
   val taken = Bool()
   val isMisPred = Bool()
-  val shift = UInt((log2Ceil(numBr)+1).W)
+  val shift = Bool()
   val addIntoHist = Bool()
 
   def fromFtqRedirectSram(entry: Ftq_Redirect_SRAMEntry) = {

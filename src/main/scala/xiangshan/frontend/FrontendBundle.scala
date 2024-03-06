@@ -287,7 +287,7 @@ class FoldedHistory(val len: Int, val compLen: Int, val max_update_num: Int)(imp
       circular_shift_left(xored, num)
     } else {
       // histLen too short to wrap around
-      ((folded_hist << num) | taken)(compLen-1,0)
+      ((folded_hist << num).asUInt | taken)(compLen-1,0)
     }
 
     val fh = WireInit(this)
@@ -397,18 +397,18 @@ trait BasicPrediction extends HasXSParameter {
   def target(pc: UInt): UInt
   def lastBrPosOH: Vec[Bool]
   def brTaken: Bool
-  def shouldShiftVec: Vec[Bool]
+  def shouldShiftVec: Bool
   def fallThruError: Bool
 }
 
 class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUConst with BasicPrediction {
-  val br_taken_mask = Vec(numBr, Bool())
+  val br_taken_mask = Bool()
 
   val slot_valids = Bool()
 
-  val targets = Vec(totalSlot, UInt(VAddrBits.W))
+  val targets = UInt(VAddrBits.W)
   val jalr_target = UInt(VAddrBits.W) // special path for indirect predictors
-  val offsets = Vec(totalSlot, UInt(log2Ceil(PredictWidth).W))
+  val offsets = UInt(log2Ceil(PredictWidth).W)
   val fallThroughAddr = UInt(VAddrBits.W)
   val fallThroughErr = Bool()
 
@@ -425,87 +425,51 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
   // def br_slot_valids = slot_valids.init
   // def tail_slot_valid = slot_valids.last
   def tail_slot_valid = slot_valids
-  def br_valids = {
-    //VecInit(br_slot_valids :+ (tail_slot_valid && is_br_sharing))
-    VecInit(tail_slot_valid && is_br_sharing)
-  }
+  def br_valids = tail_slot_valid && is_br_sharing
 
-  def taken_mask_on_slot = {
-    VecInit(
-      //(br_slot_valids zip br_taken_mask.init).map{ case (t, v) => t && v } :+ 
-      (
-        tail_slot_valid && (
-          is_br_sharing && br_taken_mask.last || !is_br_sharing
-        )
-      )
-    )
-  }
+  def taken_mask_on_slot = tail_slot_valid && (is_br_sharing && br_taken_mask || !is_br_sharing)
 
-  def real_slot_taken_mask(): Vec[Bool] = {
-    VecInit(taken_mask_on_slot.map(_ && hit))
-  }
+  def real_slot_taken_mask: Bool = taken_mask_on_slot && hit
   
   // len numBr
-  def real_br_taken_mask(): Vec[Bool] = {
-    VecInit(
-      taken_mask_on_slot.map(_ && hit).init :+
-      (br_taken_mask.last && tail_slot_valid && is_br_sharing && hit)
-    )
-  }
+  def real_br_taken_mask: Bool = br_taken_mask && tail_slot_valid && is_br_sharing && hit
 
   // the vec indicating if ghr should shift on each branch
-  def shouldShiftVec =
-    VecInit(br_valids.zipWithIndex.map{ case (v, i) =>
-      v && !real_br_taken_mask.take(i).reduceOption(_||_).getOrElse(false.B)})
+  def shouldShiftVec = br_valids
 
-  def lastBrPosOH =
-    VecInit((!hit || !br_valids.reduce(_||_)) +: // not hit or no brs in entry
-      (0 until numBr).map(i =>
-        br_valids(i) &&
-        !real_br_taken_mask.take(i).reduceOption(_||_).getOrElse(false.B) && // no brs taken in front it
-        (real_br_taken_mask()(i) || !br_valids.drop(i+1).reduceOption(_||_).getOrElse(false.B)) && // no brs behind it
-        hit
-      )
-    )
+  def lastBrPosOH = VecInit(Seq(!hit || !br_valids, br_valids && hit))
 
-  def brTaken = (br_valids zip br_taken_mask).map{ case (a, b) => a && b && hit}.reduce(_||_)
+  def brTaken = br_valids && br_taken_mask && hit
 
   def target(pc: UInt): UInt = {
-    val targetVec = targets :+ fallThroughAddr :+ (pc + (FetchWidth * 4).U)
-    val tm = taken_mask_on_slot
-    val selVecOH =
-      tm.zipWithIndex.map{ case (t, i) => !tm.take(i).fold(false.B)(_||_) && t && hit} :+
-      (!tm.asUInt.orR && hit) :+ !hit
+    val targetVec = Seq(targets, fallThroughAddr, pc + (FetchWidth * 4).U)
+    val selVecOH = Seq(taken_mask_on_slot && hit, !taken_mask_on_slot && hit, !hit)
     Mux1H(selVecOH, targetVec)
   }
 
   def fallThruError: Bool = hit && fallThroughErr
 
-  def hit_taken_on_jmp = 
-    //!real_slot_taken_mask().init.reduce(_||_) &&
-    real_slot_taken_mask().last && !is_br_sharing
+  def hit_taken_on_jmp = real_slot_taken_mask && !is_br_sharing
   def hit_taken_on_call = hit_taken_on_jmp && is_call
   def hit_taken_on_ret  = hit_taken_on_jmp && is_ret
   def hit_taken_on_jalr = hit_taken_on_jmp && is_jalr
 
   def cfiIndex = {
     val cfiIndex = Wire(ValidUndirectioned(UInt(log2Ceil(PredictWidth).W)))
-    cfiIndex.valid := real_slot_taken_mask().asUInt.orR
+    cfiIndex.valid := real_slot_taken_mask
     // when no takens, set cfiIndex to PredictWidth-1
-    cfiIndex.bits :=
-      ParallelPriorityMux(real_slot_taken_mask(), offsets) |
-      Fill(log2Ceil(PredictWidth), (!real_slot_taken_mask().asUInt.orR).asUInt)
+    cfiIndex.bits := offsets | Fill(log2Ceil(PredictWidth), !real_slot_taken_mask)
     cfiIndex
   }
 
   // def taken = br_taken_mask.reduce(_||_) || slot_valids.last // || (is_jal || is_jalr)
-  def taken = br_taken_mask.reduce(_||_) || slot_valids// || (is_jal || is_jalr)
+  def taken = br_taken_mask || slot_valids// || (is_jal || is_jalr)
 
   def fromFtbEntry(entry: FTBEntry, pc: UInt, last_stage: Option[Tuple2[UInt, Bool]] = None) = {
     // slot_valids := entry.brSlots.map(_.valid) :+ entry.tailSlot.valid
     slot_valids := entry.tailSlot.valid
     targets := entry.getTargetVec(pc)
-    jalr_target := targets.last
+    jalr_target := targets
     offsets := entry.getOffsetVec
     is_jal := entry.tailSlot.valid && entry.isJal
     is_jalr := entry.tailSlot.valid && entry.isJalr
@@ -560,8 +524,6 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle
 
   def taken = VecInit(cfiIndex.map(_.valid))
 
-  def display(cond: Bool): Unit = {
-  }
 }
 
 
@@ -601,12 +563,12 @@ class BranchPredictionUpdate(implicit p: Parameters) extends XSBundle with HasBP
   val ftb_entry = new FTBEntry()
 
   val cfi_idx = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
-  val br_taken_mask = Vec(numBr, Bool())
+  val br_taken_mask = Bool()
   val jmp_taken = Bool()
   val mispred_mask = Vec(numBr+1, Bool())
   val pred_hit = Bool()
   val false_hit = Bool()
-  val new_br_insert_pos = Vec(numBr, Bool())
+  val new_br_insert_pos = Bool()
   val old_entry = Bool()
   val meta = UInt(MaxMetaLength.W)
   val full_target = UInt(VAddrBits.W)
@@ -618,28 +580,6 @@ class BranchPredictionUpdate(implicit p: Parameters) extends XSBundle with HasBP
   def is_call = ftb_entry.tailSlot.valid && ftb_entry.isCall
   def is_ret = ftb_entry.tailSlot.valid && ftb_entry.isRet
 
-  def display(cond: Bool) = {
-  }
 }
 
-class BranchPredictionRedirect(implicit p: Parameters) extends Redirect with HasBPUConst {
-  // override def toPrintable: Printable = {
-  //   p"-----------BranchPredictionRedirect----------- " +
-  //     p"-----------cfiUpdate----------- " +
-  //     p"[pc] ${Hexadecimal(cfiUpdate.pc)} " +
-  //     p"[predTaken] ${cfiUpdate.predTaken}, [taken] ${cfiUpdate.taken}, [isMisPred] ${cfiUpdate.isMisPred} " +
-  //     p"[target] ${Hexadecimal(cfiUpdate.target)} " +
-  //     p"------------------------------- " +
-  //     p"[robPtr] f=${robIdx.flag} v=${robIdx.value} " +
-  //     p"[ftqPtr] f=${ftqIdx.flag} v=${ftqIdx.value} " +
-  //     p"[ftqOffset] ${ftqOffset} " +
-  //     p"[level] ${level}, [interrupt] ${interrupt} " +
-  //     p"[stFtqIdx] f=${stFtqIdx.flag} v=${stFtqIdx.value} " +
-  //     p"[stFtqOffset] ${stFtqOffset} " +
-  //     p"\n"
-
-  // }
-
-  def display(cond: Bool): Unit = {
-  }
-}
+class BranchPredictionRedirect(implicit p: Parameters) extends Redirect with HasBPUConst {}

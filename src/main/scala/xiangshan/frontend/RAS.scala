@@ -219,8 +219,8 @@ class RAS(implicit p: Parameters) extends BasePredictor {
   s2_spec_pop  := io.s2_fire(dupForRas) && s2_full_pred(dupForRas).hit_taken_on_ret  && !io.s3_redirect(dupForRas)
 
   val s2_jalr_target_dup = io.out.s2.full_pred.map(_.jalr_target)
-  val s2_last_target_in_dup = s2_full_pred.map(_.targets.last)
-  val s2_last_target_out_dup = io.out.s2.full_pred.map(_.targets.last)
+  val s2_last_target_in_dup = s2_full_pred.map(_.targets)
+  val s2_last_target_out_dup = io.out.s2.full_pred.map(_.targets)
   val s2_is_jalr_dup = s2_full_pred.map(_.is_jalr)
   val s2_is_ret_dup = s2_full_pred.map(_.is_ret)
   // assert(is_jalr && is_ret || !is_ret)
@@ -244,8 +244,8 @@ class RAS(implicit p: Parameters) extends BasePredictor {
 
   val s3_full_pred = io.in.bits.resp_in(0).s3.full_pred
   val s3_jalr_target_dup = io.out.s3.full_pred.map(_.jalr_target)
-  val s3_last_target_in_dup = s3_full_pred.map(_.targets.last)
-  val s3_last_target_out_dup = io.out.s3.full_pred.map(_.targets.last)
+  val s3_last_target_in_dup = s3_full_pred.map(_.targets)
+  val s3_last_target_out_dup = io.out.s3.full_pred.map(_.targets)
   val s3_is_jalr_dup = s3_full_pred.map(_.is_jalr)
   val s3_is_ret_dup = s3_full_pred.map(_.is_ret)
   // assert(is_jalr && is_ret || !is_ret)

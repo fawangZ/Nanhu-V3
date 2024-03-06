@@ -215,10 +215,10 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
     val mispredict_vec = Input(Vec(PredictWidth, Bool()))
 
     val new_entry = Output(new FTBEntry)
-    val new_br_insert_pos = Output(Vec(numBr, Bool()))
-    val taken_mask = Output(Vec(numBr, Bool()))
+    val new_br_insert_pos = Output(Bool())
+    val taken_mask = Output(Bool())
     val jmp_taken = Output(Bool())
-    val mispred_mask = Output(Vec(numBr+1, Bool()))
+    val mispred_mask = Output(Vec(1+1, Bool()))
 
     // for perf counters
     val is_init_entry = Output(Bool())
@@ -255,12 +255,12 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   // tag is left for ftb to assign
 
   // case br
-  val init_br_slot = init_entry.getSlotForBr(0)
+  val init_br_slot = init_entry.tailSlot
   when (cfi_is_br) {
     init_br_slot.valid := true.B
     init_br_slot.offset := io.cfiIndex.bits
-    init_br_slot.setLowerStatByTarget(io.start_addr, io.target, numBr == 1)
-    init_entry.always_taken(0) := true.B // set to always taken on init
+    init_br_slot.setLowerStatByTarget(io.start_addr, io.target, isShare = true)
+    init_entry.always_taken := true.B // set to always taken on init
   }
 
   // case jmp
@@ -281,44 +281,25 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
 
   // if hit, check whether a new cfi(only br is possible) is detected
   val oe = io.old_entry
-  val br_recorded_vec = oe.getBrRecordedVec(io.cfiIndex.bits)
-  val br_recorded = br_recorded_vec.asUInt.orR
+  val br_recorded = oe.getBrRecordedVec(io.cfiIndex.bits)
   val is_new_br = cfi_is_br && !br_recorded
   val new_br_offset = io.cfiIndex.bits
   // vec(i) means new br will be inserted BEFORE old br(i)
-  val allBrSlotsVec = oe.allSlotsForBr
-  val new_br_insert_onehot = VecInit((0 until numBr).map{
-    i => i match {
-      case 0 =>
-        !allBrSlotsVec(0).valid || new_br_offset < allBrSlotsVec(0).offset
-      case idx =>
-        allBrSlotsVec(idx-1).valid && new_br_offset > allBrSlotsVec(idx-1).offset &&
-        (!allBrSlotsVec(idx).valid || new_br_offset < allBrSlotsVec(idx).offset)
-    }
-  })
+  val allBrSlotsVec: FtbSlot = oe.allSlotsForBr
+
+  /** slot empty or lower branch */
+  val new_br_insert_onehot: Bool = !allBrSlotsVec.valid || new_br_offset < allBrSlotsVec.offset
 
   val old_entry_modified = WireInit(io.old_entry)
-  for (i <- 0 until numBr) {
-    val slot = old_entry_modified.allSlotsForBr(i)
-    when (new_br_insert_onehot(i)) {
-      slot.valid := true.B
-      slot.offset := new_br_offset
-      slot.setLowerStatByTarget(io.start_addr, io.target, i == numBr-1)
-      old_entry_modified.always_taken(i) := true.B
-    }.elsewhen (new_br_offset > oe.allSlotsForBr(i).offset) {
-      old_entry_modified.always_taken(i) := false.B
-      // all other fields remain unchanged
-    }
-    // .otherwise {
-    //   // case i == 0, remain unchanged
-    //   if (i != 0) {
-    //     val noNeedToMoveFromFormerSlot = (i == numBr-1).B && !oe.brSlots.last.valid
-    //     when (!noNeedToMoveFromFormerSlot) {
-    //       slot.fromAnotherSlot(oe.allSlotsForBr(i-1))
-    //       old_entry_modified.always_taken(i) := oe.always_taken(i)
-    //     }
-    //   }
-    // }
+  val slot = old_entry_modified.allSlotsForBr
+  when (new_br_insert_onehot) {
+    slot.valid := true.B
+    slot.offset := new_br_offset
+    slot.setLowerStatByTarget(io.start_addr, io.target, isShare = true)
+    old_entry_modified.always_taken := true.B
+  }.elsewhen (new_br_offset > oe.allSlotsForBr.offset) {
+    old_entry_modified.always_taken := false.B
+    // all other fields remain unchanged
   }
 
   // two circumstances:
@@ -330,8 +311,8 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   // it should either be the given last br or the new br
   when (pft_need_to_change) {
     val new_pft_offset =
-      Mux(!new_br_insert_onehot.asUInt.orR,
-        new_br_offset, oe.allSlotsForBr.last.offset)
+      Mux(!new_br_insert_onehot,
+        new_br_offset, oe.allSlotsForBr.offset)
 
     // set jmp to invalid
     old_entry_modified.pftAddr := getLower(io.start_addr) + new_pft_offset
@@ -348,19 +329,16 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   val jalr_target_modified = cfi_is_jalr && (old_target =/= io.target) && old_tail_is_jmp // TODO: pass full jalr target
   when (jalr_target_modified) {
     old_entry_jmp_target_modified.setByJmpTarget(io.start_addr, io.target)
-    old_entry_jmp_target_modified.always_taken := 0.U.asTypeOf(Vec(numBr, Bool()))
+    old_entry_jmp_target_modified.always_taken := 0.U.asTypeOf(Bool())
   }
 
   val old_entry_always_taken = WireInit(oe)
-  val always_taken_modified_vec = Wire(Vec(numBr, Bool())) // whether modified or not
-  for (i <- 0 until numBr) {
-    old_entry_always_taken.always_taken(i) :=
-      oe.always_taken(i) && io.cfiIndex.valid && oe.brValids(i) && io.cfiIndex.bits === oe.brOffset(i)
-    always_taken_modified_vec(i) := oe.always_taken(i) && !old_entry_always_taken.always_taken(i)
-  }
-  val always_taken_modified = always_taken_modified_vec.reduce(_||_)
+  val always_taken_modified_vec = Wire(Bool()) // whether modified or not
+  old_entry_always_taken.always_taken :=
+    oe.always_taken && io.cfiIndex.valid && oe.brValids && io.cfiIndex.bits === oe.brOffset
+  always_taken_modified_vec := oe.always_taken && !old_entry_always_taken.always_taken
 
-
+  val always_taken_modified = always_taken_modified_vec
 
   val derived_from_old_entry =
     Mux(is_new_br, old_entry_modified,
@@ -370,13 +348,14 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   io.new_entry := Mux(!hit, init_entry, derived_from_old_entry)
 
   io.new_br_insert_pos := new_br_insert_onehot
-  io.taken_mask := VecInit((io.new_entry.brOffset zip io.new_entry.brValids).map{
-    case (off, v) => io.cfiIndex.bits === off && io.cfiIndex.valid && v
-  })
+  io.taken_mask := io.cfiIndex.bits === io.new_entry.brOffset && io.cfiIndex.valid && io.new_entry.brValids
+
   io.jmp_taken := io.new_entry.jmpValid && io.new_entry.tailSlot.offset === io.cfiIndex.bits
-  for (i <- 0 until numBr) {
-    io.mispred_mask(i) := io.new_entry.brValids(i) && io.mispredict_vec(io.new_entry.brOffset(i))
-  }
+
+  /** mispred_mask head means branch mistake,
+   *  mispred_mask last means jump mistake
+   */
+  io.mispred_mask.head := io.new_entry.brValids && io.mispredict_vec(io.new_entry.brOffset)
   io.mispred_mask.last := io.new_entry.jmpValid && io.mispredict_vec(pd.jmpOffset)
 
   // for perf counters
@@ -1208,7 +1187,7 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
 
   val commit_inst_mask    = VecInit(commit_state.map(c => c === c_commited && do_commit)).asUInt
   val commit_mispred_mask = commit_mispredict.asUInt
-  val commit_not_mispred_mask = ~commit_mispred_mask
+  val commit_not_mispred_mask = (~commit_mispred_mask).asUInt
 
   val commit_br_mask = commit_pd.brMask.asUInt
   val commit_jmp_mask = UIntToOH(commit_pd.jmpOffset) & Fill(PredictWidth, commit_pd.jmpInfo.valid.asTypeOf(UInt(1.W)))
@@ -1236,8 +1215,8 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
     val predCycle = commit_meta.meta(63, 0)
     val target = commit_target
 
-    val brIdx = OHToUInt(Reverse(Cat(update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U})))
-    val inFtbEntry = update_ftb_entry.brValids.zip(update_ftb_entry.brOffset).map{case(v, offset) => v && offset === i.U}.reduce(_||_)
+    val brIdx = OHToUInt(Reverse(update_ftb_entry.brValids && update_ftb_entry.brOffset === i.U))
+    val inFtbEntry = update_ftb_entry.brValids && update_ftb_entry.brOffset === i.U
     val addIntoHist = ((commit_hit === h_hit) && inFtbEntry) || ((!(commit_hit === h_hit) && i.U === commit_cfi.bits && isBr && commit_cfi.valid))
     XSDebug(v && do_commit && isCfi, p"cfi_update: isBr(${isBr}) pc(${Hexadecimal(pc)}) " +
     p"taken(${isTaken}) mispred(${misPred}) cycle($predCycle) hist(${histPtr.value}) " +

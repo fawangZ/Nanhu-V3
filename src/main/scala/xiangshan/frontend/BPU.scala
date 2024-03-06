@@ -276,13 +276,13 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   val s2_ahead_fh_oldest_bits_dup = RegEnable(s1_ahead_fh_oldest_bits_dup, 0.U.asTypeOf(s0_ahead_fh_oldest_bits_dup), s1_fire_dup(1))
   val s3_ahead_fh_oldest_bits_dup = RegEnable(s2_ahead_fh_oldest_bits_dup, 0.U.asTypeOf(s0_ahead_fh_oldest_bits_dup), s2_fire_dup(1))
 
-  val npcGen_dup         = Seq.tabulate(numDup)(n => new PhyPriorityMuxGenerator[UInt])
-  val foldedGhGen_dup    = Seq.tabulate(numDup)(n => new PhyPriorityMuxGenerator[AllFoldedHistories])
-  val ghistPtrGen_dup    = Seq.tabulate(numDup)(n => new PhyPriorityMuxGenerator[CGHPtr])
-  val lastBrNumOHGen_dup = Seq.tabulate(numDup)(n => new PhyPriorityMuxGenerator[UInt])
-  val aheadFhObGen_dup   = Seq.tabulate(numDup)(n => new PhyPriorityMuxGenerator[AllAheadFoldedHistoryOldestBits])
+  val npcGen_dup         = Seq.fill(numDup)(new PhyPriorityMuxGenerator[UInt])
+  val foldedGhGen_dup    = Seq.fill(numDup)(new PhyPriorityMuxGenerator[AllFoldedHistories])
+  val ghistPtrGen_dup    = Seq.fill(numDup)(new PhyPriorityMuxGenerator[CGHPtr])
+  val lastBrNumOHGen_dup = Seq.fill(numDup)(new PhyPriorityMuxGenerator[UInt])
+  val aheadFhObGen_dup   = Seq.fill(numDup)(new PhyPriorityMuxGenerator[AllAheadFoldedHistoryOldestBits])
 
-  val ghvBitWriteGens = Seq.tabulate(HistoryLength)(n => new PhyPriorityMuxGenerator[Bool])
+  val ghvBitWriteGens = Seq.fill(HistoryLength)(new PhyPriorityMuxGenerator[Bool])
   // val ghistGen = new PhyPriorityMuxGenerator[UInt]
 
   val ghv = RegInit(0.U.asTypeOf(Vec(HistoryLength, Bool())))
@@ -301,7 +301,7 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   val s2_ghist_ptr_dup = RegEnable(s1_ghist_ptr_dup, 0.U.asTypeOf(s0_ghist_ptr_dup), s1_fire_dup(1))
   val s3_ghist_ptr_dup = RegEnable(s2_ghist_ptr_dup, 0.U.asTypeOf(s0_ghist_ptr_dup), s2_fire_dup(1))
 
-  def getHist(ptr: CGHPtr): UInt = (Cat(ghv_wire.asUInt, ghv_wire.asUInt) >> (ptr.value+1.U))(HistoryLength-1, 0)
+  def getHist(ptr: CGHPtr): UInt = (Cat(ghv_wire.asUInt, ghv_wire.asUInt) >> (ptr.value + 1.U))(HistoryLength-1, 0)
   s0_ghist := getHist(s0_ghist_ptr_dup(0))
 
   val resp = predictors.io.out
@@ -328,30 +328,30 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   do_redirect_dup.foreach(dontTouch(_))
 
   // Pipeline logic
-  s2_redirect_dup.map(_ := false.B)
-  s3_redirect_dup.map(_ := false.B)
+  s2_redirect_dup.foreach(_ := false.B)
+  s3_redirect_dup.foreach(_ := false.B)
 
-  s3_flush_dup.map(_ := redirect_req.valid) // flush when redirect comes
+  s3_flush_dup.foreach(_ := redirect_req.valid) // flush when redirect comes
   for (s2_flush & s3_flush & s3_redirect <- s2_flush_dup zip s3_flush_dup zip s3_redirect_dup)
     s2_flush := s3_flush || s3_redirect
   for (s1_flush & s2_flush & s2_redirect <- s1_flush_dup zip s2_flush_dup zip s2_redirect_dup)
     s1_flush := s2_flush || s2_redirect
 
 
-  s1_components_ready_dup.map(_ := predictors.io.s1_ready)
+  s1_components_ready_dup.foreach(_ := predictors.io.s1_ready)
   for (s1_ready & s1_fire & s1_valid <- s1_ready_dup zip s1_fire_dup zip s1_valid_dup)
     s1_ready := s1_fire || !s1_valid
   for (s0_fire & s1_components_ready & s1_ready <- s0_fire_dup zip s1_components_ready_dup zip s1_ready_dup)
     s0_fire := s1_components_ready && s1_ready
   predictors.io.s0_fire := s0_fire_dup
 
-  s2_components_ready_dup.map(_ := predictors.io.s2_ready)
+  s2_components_ready_dup.foreach(_ := predictors.io.s2_ready)
   for (s2_ready & s2_fire & s2_valid <- s2_ready_dup zip s2_fire_dup zip s2_valid_dup)
     s2_ready := s2_fire || !s2_valid
   for (s1_fire & s2_components_ready & s2_ready & s1_valid <- s1_fire_dup zip s2_components_ready_dup zip s2_ready_dup zip s1_valid_dup)
     s1_fire := s1_valid && s2_components_ready && s2_ready && io.bpu_to_ftq.resp.ready
 
-  s3_components_ready_dup.map(_ := predictors.io.s3_ready)
+  s3_components_ready_dup.foreach(_ := predictors.io.s3_ready)
   for (s3_ready & s3_fire & s3_valid <- s3_ready_dup zip s3_fire_dup zip s3_valid_dup)
     s3_ready := s3_fire || !s3_valid
   for (s2_fire & s3_components_ready & s3_ready & s2_valid <- s2_fire_dup zip s3_components_ready_dup zip s3_ready_dup zip s2_valid_dup)
@@ -405,53 +405,49 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   io.bpu_to_ftq.resp.bits.last_stage_spec_info.lastBrNumOH := s3_last_br_num_oh_dup(2)
   io.bpu_to_ftq.resp.bits.last_stage_spec_info.afhob       := s3_ahead_fh_oldest_bits_dup(2)
 
-  npcGen_dup.zip(s0_pc_reg_dup).map{ case (gen, reg) =>
+  npcGen_dup.zip(s0_pc_reg_dup).foreach{ case (gen, reg) =>
     gen.register(true.B, reg, Some("stallPC"), 0)}
-  foldedGhGen_dup.zip(s0_folded_gh_reg_dup).map{ case (gen, reg) =>
+  foldedGhGen_dup.zip(s0_folded_gh_reg_dup).foreach{ case (gen, reg) =>
     gen.register(true.B, reg, Some("stallFGH"), 0)}
-  ghistPtrGen_dup.zip(s0_ghist_ptr_reg_dup).map{ case (gen, reg) =>
+  ghistPtrGen_dup.zip(s0_ghist_ptr_reg_dup).foreach{ case (gen, reg) =>
     gen.register(true.B, reg, Some("stallGHPtr"), 0)}
-  lastBrNumOHGen_dup.zip(s0_last_br_num_oh_reg_dup).map{ case (gen, reg) =>
+  lastBrNumOHGen_dup.zip(s0_last_br_num_oh_reg_dup).foreach{ case (gen, reg) =>
     gen.register(true.B, reg, Some("stallBrNumOH"), 0)}
-  aheadFhObGen_dup.zip(s0_ahead_fh_oldest_bits_reg_dup).map{ case (gen, reg) =>
+  aheadFhObGen_dup.zip(s0_ahead_fh_oldest_bits_reg_dup).foreach{ case (gen, reg) =>
     gen.register(true.B, reg, Some("stallAFHOB"), 0)}
 
   // History manage
   // s1
   val s1_possible_predicted_ghist_ptrs_dup = s1_ghist_ptr_dup.map(ptr => (0 to numBr).map(ptr - _.U))
   val s1_predicted_ghist_ptr_dup = s1_possible_predicted_ghist_ptrs_dup.zip(resp.s1.lastBrPosOH).map{ case (ptr, oh) => Mux1H(oh, ptr)}
-  val s1_possible_predicted_fhs_dup = 
+  val s1_possible_predicted_fhs_dup =
     for (fgh & afh & br_num_oh & t & br_pos_oh <-
       s1_folded_gh_dup zip s1_ahead_fh_oldest_bits_dup zip s1_last_br_num_oh_dup zip resp.s1.brTaken zip resp.s1.lastBrPosOH)
       yield (0 to numBr).map(i =>
         fgh.update(afh, br_num_oh, i, t & br_pos_oh(i))
       )
-  val s1_predicted_fh_dup = resp.s1.lastBrPosOH.zip(s1_possible_predicted_fhs_dup).map{ case (oh, fh) => Mux1H(oh, fh)} 
+  val s1_predicted_fh_dup = resp.s1.lastBrPosOH.zip(s1_possible_predicted_fhs_dup).map{ case (oh, fh) => Mux1H(oh, fh)}
 
   val s1_ahead_fh_ob_src_dup = dup_wire(new AllAheadFoldedHistoryOldestBits(foldedGHistInfos))
-  s1_ahead_fh_ob_src_dup.zip(s1_ghist_ptr_dup).map{ case (src, ptr) => src.read(ghv, ptr)}
+  s1_ahead_fh_ob_src_dup.zip(s1_ghist_ptr_dup).foreach { case (src, ptr) => src.read(ghv, ptr)}
 
   if (EnableGHistDiff) {
     val s1_predicted_ghist = WireInit(getHist(s1_predicted_ghist_ptr_dup(0)).asTypeOf(Vec(HistoryLength, Bool())))
-    for (i <- 0 until numBr) {
-      when (resp.s1.shouldShiftVec(0)(i)) {
-        s1_predicted_ghist(i) := resp.s1.brTaken(0) && (i==0).B
-      }
+    when (resp.s1.shouldShiftVec(0)) {
+      s1_predicted_ghist(0) := resp.s1.brTaken(0)
     }
+
     when (s1_valid_dup(0)) {
       s0_ghist := s1_predicted_ghist.asUInt
     }
   }
 
   val s1_ghv_wens = (0 until HistoryLength).map(n =>
-    (0 until numBr).map(b => (s1_ghist_ptr_dup(0)).value === (CGHPtr(false.B, n.U) + b.U).value && resp.s1.shouldShiftVec(0)(b) && s1_valid_dup(0)))
+    s1_ghist_ptr_dup(0).value === CGHPtr(false.B, n.U).value && resp.s1.shouldShiftVec(0) && s1_valid_dup(0)
+  )
   val s1_ghv_wdatas = (0 until HistoryLength).map(n =>
-    Mux1H(
-      (0 until numBr).map(b => (
-        (s1_ghist_ptr_dup(0)).value === (CGHPtr(false.B, n.U) + b.U).value && resp.s1.shouldShiftVec(0)(b),
-        resp.s1.brTaken(0) && resp.s1.lastBrPosOH(0)(b+1)
-      ))
-    )
+    s1_ghist_ptr_dup(0).value === CGHPtr(false.B, n.U).value && resp.s1.shouldShiftVec(0) &&
+    resp.s1.brTaken(0) && resp.s1.lastBrPosOH(0)(1)
   )
 
   for (npcGen & s1_valid & s1_target <- npcGen_dup zip s1_valid_dup zip resp.s1.target)
@@ -464,8 +460,8 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     lastBrNumOHGen.register(s1_valid, s1_brPosOH, Some("s1_BrNumOH"), 4)
   for (aheadFhObGen & s1_valid & s1_ahead_fh_ob_src <- aheadFhObGen_dup zip s1_valid_dup zip s1_ahead_fh_ob_src_dup)
     aheadFhObGen.register(s1_valid, s1_ahead_fh_ob_src, Some("s1_AFHOB"), 4)
-  ghvBitWriteGens.zip(s1_ghv_wens).zipWithIndex.map{case ((b, w), i) =>
-    b.register(w.reduce(_||_), s1_ghv_wdatas(i), Some(s"s1_new_bit_$i"), 4)
+  ghvBitWriteGens.zip(s1_ghv_wens).zipWithIndex.foreach{case ((b, w), i) =>
+    b.register(w, s1_ghv_wdatas(i), Some(s"s1_new_bit_$i"), 4)
   }
 
   class PreviousPredInfo extends Bundle {
@@ -495,41 +491,36 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     for (fgh & afh & br_num_oh & full_pred <-
       s2_folded_gh_dup zip s2_ahead_fh_oldest_bits_dup zip s2_last_br_num_oh_dup zip resp.s2.full_pred)
       yield (0 to numBr).map(i =>
-        fgh.update(afh, br_num_oh, i, if (i > 0) full_pred.br_taken_mask(i-1) else false.B)
+        fgh.update(afh, br_num_oh, i, if (i > 0) full_pred.br_taken_mask else false.B)
       )
-  val s2_predicted_fh_dup = resp.s2.lastBrPosOH.zip(s2_possible_predicted_fhs_dup).map{ case (oh, fh) => Mux1H(oh, fh)} 
+  val s2_predicted_fh_dup = resp.s2.lastBrPosOH.zip(s2_possible_predicted_fhs_dup).map{ case (oh, fh) => Mux1H(oh, fh)}
 
   val s2_ahead_fh_ob_src_dup = dup_wire(new AllAheadFoldedHistoryOldestBits(foldedGHistInfos))
-  s2_ahead_fh_ob_src_dup.zip(s2_ghist_ptr_dup).map{ case (src, ptr) => src.read(ghv, ptr)}
+  s2_ahead_fh_ob_src_dup.zip(s2_ghist_ptr_dup).foreach{ case (src, ptr) => src.read(ghv, ptr)}
 
   if (EnableGHistDiff) {
     val s2_predicted_ghist = WireInit(getHist(s2_predicted_ghist_ptr_dup(0)).asTypeOf(Vec(HistoryLength, Bool())))
-    for (i <- 0 until numBr) {
-      when (resp.s2.shouldShiftVec(0)(i)) {
-        s2_predicted_ghist(i) := resp.s2.brTaken(0) && (i==0).B
-      }
+    when (resp.s2.shouldShiftVec(0)) {
+      s2_predicted_ghist(0) := resp.s2.brTaken(0)
     }
+
     when(s2_redirect_dup(0)) {
       s0_ghist := s2_predicted_ghist.asUInt
     }
   }
 
   val s2_ghv_wens = (0 until HistoryLength).map(n =>
-    (0 until numBr).map(b => (s2_ghist_ptr_dup(0)).value === (CGHPtr(false.B, n.U) + b.U).value && resp.s2.shouldShiftVec(0)(b) && s2_redirect_dup(0)))
+    s2_ghist_ptr_dup(0).value === CGHPtr(false.B, n.U).value && resp.s2.shouldShiftVec(0) && s2_redirect_dup(0))
   val s2_ghv_wdatas = (0 until HistoryLength).map(n =>
-    Mux1H(
-      (0 until numBr).map(b => (
-        (s2_ghist_ptr_dup(0)).value === (CGHPtr(false.B, n.U) + b.U).value && resp.s2.shouldShiftVec(0)(b),
-        resp.s2.full_pred(0).real_br_taken_mask()(b)
-      ))
-    )
+    s2_ghist_ptr_dup(0).value === CGHPtr(false.B, n.U).value && resp.s2.shouldShiftVec(0) &&
+    resp.s2.full_pred(0).real_br_taken_mask
   )
 
   val s1_pred_info = dup_wire(new PreviousPredInfo)
-  s1_pred_info.zip(resp.s1.target).map(tp => tp._1.target := tp._2)
-  s1_pred_info.zip(resp.s1.lastBrPosOH).map(tp => tp._1.lastBrPosOH := tp._2.asUInt)
-  s1_pred_info.zip(resp.s1.taken).map(tp => tp._1.taken := tp._2)
-  s1_pred_info.zip(resp.s1.cfiIndex).map(tp => tp._1.cfiIndex := tp._2.bits)
+  s1_pred_info.zip(resp.s1.target).foreach(tp => tp._1.target := tp._2)
+  s1_pred_info.zip(resp.s1.lastBrPosOH).foreach(tp => tp._1.lastBrPosOH := tp._2.asUInt)
+  s1_pred_info.zip(resp.s1.taken).foreach(tp => tp._1.taken := tp._2)
+  s1_pred_info.zip(resp.s1.cfiIndex).foreach(tp => tp._1.cfiIndex := tp._2.bits)
 
   val previous_s1_pred_info = RegEnable(s1_pred_info, 0.U.asTypeOf(s1_pred_info), s1_fire_dup(0))
 
@@ -548,8 +539,8 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     lastBrNumOHGen.register(s2_redirect, s2_brPosOH, Some("s2_BrNumOH"), 5)
   for (aheadFhObGen & s2_redirect & s2_ahead_fh_ob_src <- aheadFhObGen_dup zip s2_redirect_dup zip s2_ahead_fh_ob_src_dup)
     aheadFhObGen.register(s2_redirect, s2_ahead_fh_ob_src, Some("s2_AFHOB"), 5)
-  ghvBitWriteGens.zip(s2_ghv_wens).zipWithIndex.map{case ((b, w), i) =>
-    b.register(w.reduce(_||_), s2_ghv_wdatas(i), Some(s"s2_new_bit_$i"), 5)
+  ghvBitWriteGens.zip(s2_ghv_wens).zipWithIndex.foreach {case ((b, w), i) =>
+    b.register(w, s2_ghv_wdatas(i), Some(s"s2_new_bit_$i"), 5)
   }
 
   XSPerfAccumulate("s2_redirect_because_target_diff", s2_fire_dup(0) && s2_redirect_s1_last_pred_vec_dup(0)(0))
@@ -573,39 +564,35 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     for (fgh & afh & br_num_oh & full_pred <-
       s3_folded_gh_dup zip s3_ahead_fh_oldest_bits_dup zip s3_last_br_num_oh_dup zip resp.s3.full_pred)
       yield (0 to numBr).map(i =>
-        fgh.update(afh, br_num_oh, i, if (i > 0) full_pred.br_taken_mask(i-1) else false.B)
+        fgh.update(afh, br_num_oh, i, if (i > 0) full_pred.br_taken_mask else false.B)
       )
-  val s3_predicted_fh_dup = resp.s3.lastBrPosOH.zip(s3_possible_predicted_fhs_dup).map{ case (oh, fh) => Mux1H(oh, fh)} 
+  val s3_predicted_fh_dup = resp.s3.lastBrPosOH.zip(s3_possible_predicted_fhs_dup).map{ case (oh, fh) => Mux1H(oh, fh)}
 
   val s3_ahead_fh_ob_src_dup = dup_wire(new AllAheadFoldedHistoryOldestBits(foldedGHistInfos))
-  s3_ahead_fh_ob_src_dup.zip(s3_ghist_ptr_dup).map{ case (src, ptr) => src.read(ghv, ptr)}
+  s3_ahead_fh_ob_src_dup.zip(s3_ghist_ptr_dup).foreach{ case (src, ptr) => src.read(ghv, ptr)}
 
   if (EnableGHistDiff) {
     val s3_predicted_ghist = WireInit(getHist(s3_predicted_ghist_ptr_dup(0)).asTypeOf(Vec(HistoryLength, Bool())))
-    for (i <- 0 until numBr) {
-      when (resp.s3.shouldShiftVec(0)(i)) {
-        s3_predicted_ghist(i) := resp.s3.brTaken(0) && (i==0).B
-      }
+
+    when (resp.s3.shouldShiftVec(0)) {
+      s3_predicted_ghist(0) := resp.s3.brTaken(0)
     }
+
     when(s3_redirect_dup(0)) {
       s0_ghist := s3_predicted_ghist.asUInt
     }
   }
 
   val s3_ghv_wens = (0 until HistoryLength).map(n =>
-    (0 until numBr).map(b => (s3_ghist_ptr_dup(0)).value === (CGHPtr(false.B, n.U) + b.U).value && resp.s3.shouldShiftVec(0)(b) && s3_redirect_dup(0)))
+    s3_ghist_ptr_dup(0).value === CGHPtr(false.B, n.U).value && resp.s3.shouldShiftVec(0) && s3_redirect_dup(0))
   val s3_ghv_wdatas = (0 until HistoryLength).map(n =>
-    Mux1H(
-      (0 until numBr).map(b => (
-        (s3_ghist_ptr_dup(0)).value === (CGHPtr(false.B, n.U) + b.U).value && resp.s3.shouldShiftVec(0)(b),
-        resp.s3.full_pred(0).real_br_taken_mask()(b)
-      ))
-    )
+    s3_ghist_ptr_dup(0).value === CGHPtr(false.B, n.U).value && resp.s3.shouldShiftVec(0) &&
+    resp.s3.full_pred(0).real_br_taken_mask
   )
 
   val previous_s2_pred = RegEnable(resp.s2, 0.U.asTypeOf(resp.s2), s2_fire_dup(0))
 
-  val s3_redirect_on_br_taken_dup = resp.s3.full_pred.zip(previous_s2_pred.full_pred).map {case (fp1, fp2) => fp1.real_br_taken_mask().asUInt =/= fp2.real_br_taken_mask().asUInt}
+  val s3_redirect_on_br_taken_dup = resp.s3.full_pred.zip(previous_s2_pred.full_pred).map {case (fp1, fp2) => fp1.real_br_taken_mask =/= fp2.real_br_taken_mask}
   val s3_redirect_on_target_dup = resp.s3.target.zip(previous_s2_pred.target).map {case (t1, t2) => t1 =/= t2}
   val s3_redirect_on_jalr_target_dup = resp.s3.full_pred.zip(previous_s2_pred.full_pred).map {case (fp1, fp2) => fp1.hit_taken_on_jalr && fp1.jalr_target =/= fp2.jalr_target}
   val s3_redirect_on_fall_thru_error_dup = resp.s3.fallThruError
@@ -632,8 +619,8 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     lastBrNumOHGen.register(s3_redirect, s3_brPosOH, Some("s3_BrNumOH"), 3)
   for (aheadFhObGen & s3_redirect & s3_ahead_fh_ob_src <- aheadFhObGen_dup zip s3_redirect_dup zip s3_ahead_fh_ob_src_dup)
     aheadFhObGen.register(s3_redirect, s3_ahead_fh_ob_src, Some("s3_AFHOB"), 3)
-  ghvBitWriteGens.zip(s3_ghv_wens).zipWithIndex.map{case ((b, w), i) =>
-    b.register(w.reduce(_||_), s3_ghv_wdatas(i), Some(s"s3_new_bit_$i"), 3)
+  ghvBitWriteGens.zip(s3_ghv_wens).zipWithIndex.foreach {case ((b, w), i) =>
+    b.register(w, s3_ghv_wdatas(i), Some(s"s3_new_bit_$i"), 3)
   }
 
   // Send signal tell Ftq override
@@ -643,21 +630,21 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   for (to_ftq_s1_valid & s1_fire & s1_flush <- io.bpu_to_ftq.resp.bits.s1.valid zip s1_fire_dup zip s1_flush_dup) {
     to_ftq_s1_valid := s1_fire && !s1_flush
   }
-  io.bpu_to_ftq.resp.bits.s1.hasRedirect.map(_ := false.B)
+  io.bpu_to_ftq.resp.bits.s1.hasRedirect.foreach(_ := false.B)
   io.bpu_to_ftq.resp.bits.s1.ftq_idx := DontCare
   for (to_ftq_s2_valid & s2_fire & s2_flush <- io.bpu_to_ftq.resp.bits.s2.valid zip s2_fire_dup zip s2_flush_dup) {
     to_ftq_s2_valid := s2_fire && !s2_flush
   }
-  io.bpu_to_ftq.resp.bits.s2.hasRedirect.zip(s2_redirect_dup).map {case (hr, r) => hr := r}
+  io.bpu_to_ftq.resp.bits.s2.hasRedirect.zip(s2_redirect_dup).foreach {case (hr, r) => hr := r}
   io.bpu_to_ftq.resp.bits.s2.ftq_idx := s2_ftq_idx
   for (to_ftq_s3_valid & s3_fire & s3_flush <- io.bpu_to_ftq.resp.bits.s3.valid zip s3_fire_dup zip s3_flush_dup) {
     to_ftq_s3_valid := s3_fire && !s3_flush
   }
-  io.bpu_to_ftq.resp.bits.s3.hasRedirect.zip(s3_redirect_dup).map {case (hr, r) => hr := r}
+  io.bpu_to_ftq.resp.bits.s3.hasRedirect.zip(s3_redirect_dup).foreach {case (hr, r) => hr := r}
   io.bpu_to_ftq.resp.bits.s3.ftq_idx := s3_ftq_idx
 
   predictors.io.update := RegNext(dup(io.ftq_to_bpu.update))
-  predictors.io.update.map(_.bits.ghist := RegNext(getHist(io.ftq_to_bpu.update.bits.spec_info.histPtr)))
+  predictors.io.update.foreach(_.bits.ghist := RegNext(getHist(io.ftq_to_bpu.update.bits.spec_info.histPtr)))
   
   val redirect_dup = do_redirect_dup.map(_.bits)
   predictors.io.redirect := do_redirect_dup(0)
@@ -665,9 +652,7 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   // Redirect logic
   val shift_dup = redirect_dup.map(_.cfiUpdate.shift)
   val addIntoHist_dup = redirect_dup.map(_.cfiUpdate.addIntoHist)
-  // TODO: remove these below
-  val shouldShiftVec_dup = shift_dup.map(shift => Mux(shift === 0.U, VecInit(0.U((1 << (log2Ceil(numBr) + 1)).W).asBools), VecInit((LowerMask(1.U << (shift-1.U))).asBools)))
-  // TODO end
+
   val afhob_dup = redirect_dup.map(_.cfiUpdate.afhob)
   val lastBrNumOH_dup = redirect_dup.map(_.cfiUpdate.lastBrNumOH)
 
@@ -676,7 +661,7 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   val taken_dup = redirect_dup.map(_.cfiUpdate.taken)
   val real_br_taken_mask_dup =
     for (shift & taken & addIntoHist <- shift_dup zip taken_dup zip addIntoHist_dup)
-      yield (0 until numBr).map(i => shift === (i+1).U && taken && addIntoHist )
+      yield shift && taken && addIntoHist
 
   val oldPtr_dup = redirect_dup.map(_.cfiUpdate.histPtr)
   val oldFh_dup = redirect_dup.map(_.cfiUpdate.folded_hist)
@@ -687,23 +672,20 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     yield VecInit((0 to numBr).map(i => oldFh.update(afhob, lastBrNumOH, i, taken && addIntoHist)))(shift)
   val thisBrNumOH_dup = shift_dup.map(shift => UIntToOH(shift, numBr+1))
   val thisAheadFhOb_dup = dup_wire(new AllAheadFoldedHistoryOldestBits(foldedGHistInfos))
-  thisAheadFhOb_dup.zip(oldPtr_dup).map {case (afhob, oldPtr) => afhob.read(ghv, oldPtr)}
+  thisAheadFhOb_dup.zip(oldPtr_dup).foreach {case (afhob, oldPtr) => afhob.read(ghv, oldPtr)}
   val redirect_ghv_wens = (0 until HistoryLength).map(n =>
-    (0 until numBr).map(b => oldPtr_dup(0).value === (CGHPtr(false.B, n.U) + b.U).value && shouldShiftVec_dup(0)(b) && do_redirect_dup(0).valid))
+    oldPtr_dup(0).value === CGHPtr(false.B, n.U).value && shift_dup(0) && do_redirect_dup(0).valid)
   val redirect_ghv_wdatas = (0 until HistoryLength).map(n =>
-    Mux1H(
-      (0 until numBr).map(b => oldPtr_dup(0).value === (CGHPtr(false.B, n.U) + b.U).value && shouldShiftVec_dup(0)(b)),
-      real_br_taken_mask_dup(0)
-    )
+    oldPtr_dup(0).value === CGHPtr(false.B, n.U).value && shift_dup(0) && real_br_taken_mask_dup(0)
   )
 
   if (EnableGHistDiff) {
     val updated_ghist = WireInit(getHist(updated_ptr_dup(0)).asTypeOf(Vec(HistoryLength, Bool())))
-    for (i <- 0 until numBr) {
-      when (shift_dup(0) >= (i+1).U) {
-        updated_ghist(i) := taken_dup(0) && addIntoHist_dup(0) && (i==0).B
-      }
+
+    when (shift_dup(0) >= 1.U) {
+      updated_ghist(0) := taken_dup(0) && addIntoHist_dup(0)
     }
+
     when(do_redirect_dup(0).valid) {
       s0_ghist := updated_ghist.asUInt
     }
@@ -721,8 +703,8 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
     lastBrNumOHGen.register(do_redirect.valid, thisBrNumOH, Some("redirect_BrNumOH"), 2)
   for (aheadFhObGen & do_redirect & thisAheadFhOb <- aheadFhObGen_dup zip do_redirect_dup zip thisAheadFhOb_dup)
     aheadFhObGen.register(do_redirect.valid, thisAheadFhOb, Some("redirect_AFHOB"), 2)
-  ghvBitWriteGens.zip(redirect_ghv_wens).zipWithIndex.map{case ((b, w), i) =>
-    b.register(w.reduce(_||_), redirect_ghv_wdatas(i), Some(s"redirect_new_bit_$i"), 2)
+  ghvBitWriteGens.zip(redirect_ghv_wens).zipWithIndex.foreach{case ((b, w), i) =>
+    b.register(w, redirect_ghv_wdatas(i), Some(s"redirect_new_bit_$i"), 2)
   }
   // no need to assign s0_last_pred
 
@@ -733,16 +715,16 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   // foldedGhGen.register(need_reset, 0.U.asTypeOf(s0_folded_gh), Some("reset_FGH"), 1)
   // ghistPtrGen.register(need_reset, 0.U.asTypeOf(new CGHPtr), Some("reset_GHPtr"), 1)
 
-  s0_pc_dup.zip(npcGen_dup).map {case (s0_pc, npcGen) => s0_pc := npcGen()}
-  s0_folded_gh_dup.zip(foldedGhGen_dup).map {case (s0_folded_gh, foldedGhGen) => s0_folded_gh := foldedGhGen()}
-  s0_ghist_ptr_dup.zip(ghistPtrGen_dup).map {case (s0_ghist_ptr, ghistPtrGen) => s0_ghist_ptr := ghistPtrGen()}
-  s0_ahead_fh_oldest_bits_dup.zip(aheadFhObGen_dup).map {case (s0_ahead_fh_oldest_bits, aheadFhObGen) =>
+  s0_pc_dup.zip(npcGen_dup).foreach {case (s0_pc, npcGen) => s0_pc := npcGen()}
+  s0_folded_gh_dup.zip(foldedGhGen_dup).foreach {case (s0_folded_gh, foldedGhGen) => s0_folded_gh := foldedGhGen()}
+  s0_ghist_ptr_dup.zip(ghistPtrGen_dup).foreach {case (s0_ghist_ptr, ghistPtrGen) => s0_ghist_ptr := ghistPtrGen()}
+  s0_ahead_fh_oldest_bits_dup.zip(aheadFhObGen_dup).foreach {case (s0_ahead_fh_oldest_bits, aheadFhObGen) =>
     s0_ahead_fh_oldest_bits := aheadFhObGen()}
-  s0_last_br_num_oh_dup.zip(lastBrNumOHGen_dup).map {case (s0_last_br_num_oh, lastBrNumOHGen) =>
+  s0_last_br_num_oh_dup.zip(lastBrNumOHGen_dup).foreach {case (s0_last_br_num_oh, lastBrNumOHGen) =>
     s0_last_br_num_oh := lastBrNumOHGen()}
-  (ghv_write_datas zip ghvBitWriteGens).map{case (wd, d) => wd := d()}
+  (ghv_write_datas zip ghvBitWriteGens).foreach{case (wd, d) => wd := d()}
   for (i <- 0 until HistoryLength) {
-    ghv_wens(i) := Seq(s1_ghv_wens, s2_ghv_wens, s3_ghv_wens, redirect_ghv_wens).map(_(i).reduce(_||_)).reduce(_||_)
+    ghv_wens(i) := Seq(s1_ghv_wens, s2_ghv_wens, s3_ghv_wens, redirect_ghv_wens).map(_(i)).reduce(_||_)
     when (ghv_wens(i)) {
       ghv(i) := ghv_write_datas(i)
     }
@@ -777,10 +759,6 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   XSDebug(p"s1_ghist_ptr: ${s1_ghist_ptr_dup(0)}\n")
   XSDebug(p"s2_ghist_ptr: ${s2_ghist_ptr_dup(0)}\n")
   XSDebug(p"s3_ghist_ptr: ${s3_ghist_ptr_dup(0)}\n")
-
-  io.ftq_to_bpu.update.bits.display(io.ftq_to_bpu.update.valid)
-  io.ftq_to_bpu.redirect.bits.display(io.ftq_to_bpu.redirect.valid)
-
 
   XSPerfAccumulate("s2_redirect", s2_redirect_dup(0))
   XSPerfAccumulate("s3_redirect", s3_redirect_dup(0))
