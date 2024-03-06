@@ -52,22 +52,6 @@ trait ITTageParams extends HasXSParameter with HasBPUParameter {
 }
 // reuse TAGE implementation
 
-trait ITTageHasFoldedHistory {
-  val histLen: Int
-  def compute_folded_hist(hist: UInt, l: Int) = {
-    if (histLen > 0) {
-      val nChunks = (histLen + l - 1) / l
-      val hist_chunks = (0 until nChunks) map {i =>
-        hist(min((i+1)*l, histLen)-1, i*l)
-      }
-      ParallelXOR(hist_chunks)
-    }
-    else 0.U
-  }
-}
-
-
-
 abstract class ITTageBundle(implicit p: Parameters)
   extends XSBundle with ITTageParams with BPUUtils
 
@@ -126,17 +110,6 @@ class ITTageMeta(implicit p: Parameters) extends XSBundle with ITTageParams{
     p"altpvdr(v:${altProvider.valid} num:${altProvider.bits}, ctr:$altProviderCtr, tar:${Hexadecimal(altProviderTarget)}), " +
     p"altdiff:$altDiffers, alloc(v:${allocate.valid} num:${allocate.bits}), taken:$taken, cycle:${pred_cycle.getOrElse(0.U)}"
   }
-}
-
-
-class FakeITTageTable()(implicit p: Parameters) extends ITTageModule {
-  val io = IO(new Bundle() {
-    val req = Input(Valid(new ITTageReq))
-    val resp = Output(Valid(new ITTageResp))
-    val update = Input(new ITTageUpdate)
-  })
-  io.resp := DontCare
-
 }
 
 class ITTageTable
@@ -207,7 +180,7 @@ class ITTageTable
 
   // pc is start address of basic block, most 2 branch inst in block
   // def getUnhashedIdx(pc: UInt) = pc >> (instOffsetBits+log2Ceil(TageBanks))
-  def getUnhashedIdx(pc: UInt): UInt = pc >> instOffsetBits
+  def getUnhashedIdx(pc: UInt): UInt = (pc >> instOffsetBits).asUInt
 
   val s0_pc = io.req.bits.pc
   val s0_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
@@ -261,7 +234,7 @@ class ITTageTable
     table_banks(b).io.w.apply(
       valid   = io.update.valid && update_req_bank_1h(b),
       data    = update_wdata,
-      setIdx  = update_idx_in_bank,
+      setIdx  = update_idx_in_bank.asUInt,
       waymask = true.B
     )
   }
@@ -279,8 +252,8 @@ class ITTageTable
 
   wrbypass.io.wen := io.update.valid
   wrbypass.io.write_idx := update_idx
-  wrbypass.io.write_tag.map(_ := update_tag)
-  wrbypass.io.write_data.map(_ := update_wdata.ctr)
+  wrbypass.io.write_tag.foreach(_ := update_tag)
+  wrbypass.io.write_data.foreach(_ := update_wdata.ctr)
 
   val old_ctr = Mux(wrbypass.io.hit, wrbypass.io.hit_data(0).bits, io.update.oldCtr)
   update_wdata.ctr   := Mux(io.update.alloc, 2.U, inc_ctr(old_ctr, io.update.correct))
@@ -295,7 +268,7 @@ class ITTageTable
   }
 
   // reset all us in 32 cycles
-  us.io.resetEn.map(_ := io.update.reset_u)
+  us.io.resetEn.foreach(_ := io.update.reset_u)
 
   XSPerfAccumulate("ittage_table_updates", io.update.valid)
   XSPerfAccumulate("ittage_table_hits", io.resp.valid)
@@ -330,34 +303,7 @@ class ITTageTable
 
 }
 
-abstract class BaseITTage(implicit p: Parameters) extends BasePredictor with ITTageParams with BPUUtils {
-  // class TAGEResp {
-  //   val takens = Vec(PredictWidth, Bool())
-  //   val hits = Vec(PredictWidth, Bool())
-  // }
-  // class TAGEMeta {
-  // }
-  // class FromBIM {
-  //   val ctrs = Vec(PredictWidth, UInt(2.W))
-  // }
-  // class TageIO extends DefaultBasePredictorIO {
-  //   val resp = Output(new TAGEResp)
-  //   val meta = Output(Vec(PredictWidth, new TageMeta))
-  //   val bim = Input(new FromBIM)
-  //   val s2Fire = Input(Bool())
-  // }
-
-  // override val io = IO(new TageIO)
-}
-
-class FakeITTage(implicit p: Parameters) extends BaseITTage {
-  io.out <> 0.U.asTypeOf(DecoupledIO(new BasePredictorOutput))
-
-  // io.s0_ready := true.B
-  io.s1_ready := true.B
-  io.s2_ready := true.B
-}
-// TODO: check target related logics
+abstract class BaseITTage(implicit p: Parameters) extends BasePredictor with ITTageParams with BPUUtils {}
 
 class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends BaseITTage {
   override val meta_size = 0.U.asTypeOf(new ITTageMeta).getWidth
@@ -448,7 +394,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   updateU       := DontCare
 
   // val updateTageMisPreds = VecInit((0 until numBr).map(i => updateMetas(i).taken =/= u.takens(i)))
-  val updateMisPred = update.mispred_mask(numBr) // the last one indicates jmp results
+  val updateMisPred = update.mispred_mask.last // the last one indicates jmp results
   // access tag tables and output meta info
   class ITTageTableInfo(implicit p: Parameters) extends ITTageResp {
     val tableIdx = UInt(log2Ceil(ITTageNTables).W)
