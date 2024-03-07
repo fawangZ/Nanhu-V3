@@ -34,7 +34,7 @@ trait HasSCParameter extends TageParams {
 // class TageReq(implicit p: Parameters) extends TageBundle {
 //   val pc = UInt(VAddrBits.W)
 //   val ghist = UInt(HistoryLength.W)
-//   val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+//   val foldedHist = new AllFoldedHistories(foldedGHistInfos)
 // }
 class SCReq(implicit p: Parameters) extends TageReq
 
@@ -57,7 +57,7 @@ class SCResp(val ctrBits: Int = 6)(implicit p: Parameters) extends SCBundle {
 
 class SCUpdate(val ctrBits: Int = 6)(implicit p: Parameters) extends SCBundle {
   val pc = UInt(VAddrBits.W)
-  val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
   val mask = Bool()
   val oldCtrs = SInt(ctrBits.W)
   val tagePreds = Bool()
@@ -93,7 +93,7 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int, parentName:Str
 
   def getIdx(pc: UInt, allFh: AllFoldedHistories) = {
     if (histLen > 0) {
-      val idx_fh = allFh.getHistWithInfo(idxFhInfo).folded_hist
+      val idx_fh = allFh.getHistWithInfo(idxFhInfo).foldedHist
       // require(idx_fh.getWidth == log2Ceil(nRows))
       ((pc >> instOffsetBits) ^ idx_fh)(log2Ceil(nRows)-1,0)
     }
@@ -105,7 +105,7 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int, parentName:Str
 
   def ctrUpdate(ctr: SInt, cond: Bool): SInt = signedSatUpdate(ctr, ctrBits, cond)
 
-  val s0_idx = getIdx(io.req.bits.pc, io.req.bits.folded_hist)
+  val s0_idx = getIdx(io.req.bits.pc, io.req.bits.foldedHist)
   val s1_idx = RegEnable(s0_idx, io.req.valid)
 
   val s1_pc = RegEnable(io.req.bits.pc, io.req.fire)
@@ -126,7 +126,7 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int, parentName:Str
   updateWayMask(0) := io.update.mask && !io.update.tagePreds
   updateWayMask(1) := io.update.mask && io.update.tagePreds
 
-  val update_idx = getIdx(io.update.pc, io.update.folded_hist)
+  val update_idx = getIdx(io.update.pc, io.update.foldedHist)
 
   table.io.w.apply(
     valid = io.update.mask,
@@ -211,7 +211,7 @@ trait HasSC extends HasSCParameter with HasPerfEvents { this: Tage =>
         val req = t.io.req
         req.valid := io.s0_fire(dupForTageSC)
         req.bits.pc := s0_pc_dup(dupForTageSC)
-        req.bits.folded_hist := io.in.bits.folded_hist(dupForTageSC)
+        req.bits.foldedHist := io.in.bits.foldedHist(dupForTageSC)
         req.bits.ghist := DontCare
         if (!EnableSC) {t.io.update := DontCare}
         t
@@ -299,7 +299,7 @@ trait HasSC extends HasSCParameter with HasPerfEvents { this: Tage =>
         s2_agree := s2_tageTakens_dup(dupForTageSC) === pred
         s2_disagree := s2_tageTakens_dup(dupForTageSC) =/= pred
         // fit to always-taken condition
-        // io.out.s2.full_pred.br_taken_mask(w) := pred
+        // io.out.s2.fullPred.br_taken(w) := pred
         XSDebug(p"pc(${Hexadecimal(debug_pc)}) SC(${0.U}) overriden pred to ${pred}\n")
       }
     }
@@ -307,9 +307,9 @@ trait HasSC extends HasSCParameter with HasPerfEvents { this: Tage =>
     val s3_pred_dup = io.s2_fire.map(f => RegEnable(s2_pred, f))
     val sc_enable_dup = RegNext(dup(io.ctrl.sc_enable))
     for (sc_enable & fp & s3_pred <-
-      sc_enable_dup zip io.out.s3.full_pred zip s3_pred_dup) {
+      sc_enable_dup zip io.out.s3.fullPred zip s3_pred_dup) {
         when (sc_enable) {
-          fp.br_taken_mask := s3_pred
+          fp.br_taken := s3_pred
         }
         dontTouch(sc_enable)
     }
@@ -318,7 +318,7 @@ trait HasSC extends HasSCParameter with HasPerfEvents { this: Tage =>
     when (updateValids && updateSCMeta.scUsed) {
       val scPred = updateSCMeta.scPreds
       val tagePred = updateSCMeta.tageTakens
-      val taken = update.br_taken_mask
+      val taken = update.br_taken
       val scOldCtrs = updateSCMeta.ctrs
       val pvdrCtr = updateTageMeta.providerResps.ctr
       val sum = ParallelSingedExpandingAdd(scOldCtrs.map(getCentered)) +& getPvdrCentered(pvdrCtr)
@@ -368,7 +368,7 @@ trait HasSC extends HasSCParameter with HasPerfEvents { this: Tage =>
       scTables(i).io.update.takens    := RegEnable(scUpdateTakens, false.B, updateValids)
       scTables(i).io.update.oldCtrs   := RegEnable(scUpdateOldCtrs(i), 0.S, updateValids)
       scTables(i).io.update.pc := RegEnable(update.pc, 0.U, updateValids)
-      scTables(i).io.update.folded_hist := RegEnable(updateFHist, 0.U.asTypeOf(updateFHist), updateValids)
+      scTables(i).io.update.foldedHist := RegEnable(updateFHist, 0.U.asTypeOf(updateFHist), updateValids)
     }
     
 
