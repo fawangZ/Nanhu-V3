@@ -69,7 +69,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val rasSp = UInt(log2Up(RasSize).W)
   val rasEntry = new RASEntry
   // val hist = new ShiftingGlobalHistory
-  val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
   val afhob = new AllAheadFoldedHistoryOldestBits(foldedGHistInfos)
   val lastBrNumOH = UInt((numBr+1).W)
   val ghr = UInt(UbtbGHRLength.W)
@@ -86,7 +86,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
 
   def fromFtqRedirectSram(entry: Ftq_Redirect_SRAMEntry) = {
     // this.hist := entry.ghist
-    this.folded_hist := entry.folded_hist
+    this.foldedHist := entry.foldedHist
     this.lastBrNumOH := entry.lastBrNumOH
     this.afhob := entry.afhob
     this.histPtr := entry.histPtr

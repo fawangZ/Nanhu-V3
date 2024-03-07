@@ -62,7 +62,7 @@ abstract class ITTageModule(implicit p: Parameters)
 
 class ITTageReq(implicit p: Parameters) extends ITTageBundle {
   val pc = UInt(VAddrBits.W)
-  val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
 }
 
 class ITTageResp(implicit p: Parameters) extends ITTageBundle {
@@ -73,7 +73,7 @@ class ITTageResp(implicit p: Parameters) extends ITTageBundle {
 
 class ITTageUpdate(implicit p: Parameters) extends ITTageBundle {
   val pc = UInt(VAddrBits.W)
-  val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
   // update tag and ctr
   val valid = Bool()
   val correct = Bool()
@@ -103,12 +103,12 @@ class ITTageMeta(implicit p: Parameters) extends XSBundle with ITTageParams{
   val altProviderTarget = UInt(VAddrBits.W)
   // val scMeta = new SCMeta(EnableSC)
   // TODO: check if we need target info here
-  val pred_cycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
+  val predCycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
 
   override def toPrintable = {
     p"pvdr(v:${provider.valid} num:${provider.bits} ctr:$providerCtr u:$providerU tar:${Hexadecimal(providerTarget)}), " +
     p"altpvdr(v:${altProvider.valid} num:${altProvider.bits}, ctr:$altProviderCtr, tar:${Hexadecimal(altProviderTarget)}), " +
-    p"altdiff:$altDiffers, alloc(v:${allocate.valid} num:${allocate.bits}), taken:$taken, cycle:${pred_cycle.getOrElse(0.U)}"
+    p"altdiff:$altDiffers, alloc(v:${allocate.valid} num:${allocate.bits}), taken:$taken, cycle:${predCycle.getOrElse(0.U)}"
   }
 }
 
@@ -150,9 +150,9 @@ class ITTageTable
 
   def compute_tag_and_hash(unhashed_idx: UInt, allFh: AllFoldedHistories) = {
     if (histLen > 0) {
-      val idx_fh = allFh.getHistWithInfo(idxFhInfo).folded_hist
-      val tag_fh = allFh.getHistWithInfo(tagFhInfo).folded_hist
-      val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).folded_hist
+      val idx_fh = allFh.getHistWithInfo(idxFhInfo).foldedHist
+      val tag_fh = allFh.getHistWithInfo(tagFhInfo).foldedHist
+      val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).foldedHist
       // require(idx_fh.getWidth == log2Ceil(nRows))
       val idx = (unhashed_idx ^ idx_fh)(log2Ceil(nRows)-1, 0)
       val tag = ((unhashed_idx >> log2Ceil(nRows)).asUInt ^ tag_fh ^ (alt_tag_fh << 1).asUInt)(tagLen - 1, 0)
@@ -185,7 +185,7 @@ class ITTageTable
   val s0_pc = io.req.bits.pc
   val s0_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
 
-  val (s0_idx, s0_tag) = compute_tag_and_hash(s0_unhashed_idx, io.req.bits.folded_hist)
+  val (s0_idx, s0_tag) = compute_tag_and_hash(s0_unhashed_idx, io.req.bits.foldedHist)
   val (s1_idx, s1_tag) = (RegEnable(s0_idx, io.req.fire), RegEnable(s0_tag, io.req.fire))
   val s0_bank_req_1h = get_bank_mask(s0_idx)
   val s1_bank_req_1h = RegEnable(s0_bank_req_1h, io.req.fire)
@@ -224,7 +224,7 @@ class ITTageTable
 
 
   // Use fetchpc to compute hash
-  val (update_idx, update_tag) = compute_tag_and_hash(getUnhashedIdx(io.update.pc), io.update.folded_hist)
+  val (update_idx, update_tag) = compute_tag_and_hash(getUnhashedIdx(io.update.pc), io.update.foldedHist)
   val update_req_bank_1h = get_bank_mask(update_idx)
   val update_idx_in_bank = get_bank_idx(update_idx)
   val update_target = io.update.target
@@ -314,7 +314,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
       val t = Module(new ITTageTable(nRows, histLen, tagLen, UBitPeriod, i, parentName = parentName + s"tables${i}_"))
       t.io.req.valid := io.s0_fire(dupForIttage)
       t.io.req.bits.pc := s0_pc_dup(dupForIttage)
-      t.io.req.bits.folded_hist := io.in.bits.folded_hist(dupForIttage)
+      t.io.req.bits.foldedHist := io.in.bits.foldedHist(dupForIttage)
       t
   }
   override def getFoldedHistoryInfo = Some(tables.map(_.getFoldedHistoryInfo).reduce(_++_))
@@ -364,15 +364,15 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   // val updateBank = u.pc(log2Ceil(TageBanks)+instOffsetBits-1, instOffsetBits)
   val resp_meta = WireInit(0.U.asTypeOf(new ITTageMeta))
 
-  io.out.last_stage_meta := resp_meta.asUInt
+  io.out.lastStageMeta := resp_meta.asUInt
 
   // Update logic
   val u_valid = io.update(dupForIttage).valid
   val update = io.update(dupForIttage).bits
   val updateValid =
-    update.is_jalr && !update.is_ret && u_valid && update.ftb_entry.jmpValid &&
-    update.jmp_taken && update.cfi_idx.valid && update.cfi_idx.bits === update.ftb_entry.offset//#2015
-  val updateFhist = update.spec_info.folded_hist
+    update.isJalr && !update.isRet && u_valid && update.ftbEntry.jmpValid &&
+    update.jmp_taken && update.cfi_idx.valid && update.cfi_idx.bits === update.ftbEntry.offset//#2015
+  val updateFhist = update.specInfo.foldedHist
 
   // meta is splited by composer
   val updateMeta = update.meta.asTypeOf(new ITTageMeta)
@@ -416,7 +416,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   val providerNull = providerInfo.ctr === 0.U
   
   val basePred   = true.B
-  val baseTarget = io.in.bits.resp_in(0).s2.full_pred(dupForIttage).jalr_target // use ftb pred as base target
+  val baseTarget = io.in.bits.resp_in(0).s2.fullPred(dupForIttage).jalrTarget // use ftb pred as base target
   
   s2_tageTaken := Mux1H(Seq(
     // (provided && !providerNull, providerInfo.ctr(ITTageCtrBits-1)),
@@ -449,10 +449,10 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   XSDebug(s2_fire, p"hit_taken_jalr:")
 
   for (fp & s3_tageTaken & s3_tageTarget <-
-    io.out.s3.full_pred zip s3_tageTaken_dup zip s3_tageTarget_dup)
+    io.out.s3.fullPred zip s3_tageTaken_dup zip s3_tageTarget_dup)
     yield
       when(s3_tageTaken) {
-        fp.jalr_target := s3_tageTarget
+        fp.jalrTarget := s3_tageTarget
       }
 
   resp_meta.provider.valid    := s3_provided
@@ -466,7 +466,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   resp_meta.taken             := s3_tageTaken_dup(dupForIttage)
   resp_meta.providerTarget    := s3_providerTarget
   resp_meta.altProviderTarget := s3_altProviderTarget
-  resp_meta.pred_cycle.foreach(_:= GTimer())
+  resp_meta.predCycle.foreach(_:= GTimer())
   // TODO: adjust for ITTAGE
   // Create a mask fo tables which did not hit our query, and also contain useless entries
   // and also uses a longer history than the provider
@@ -480,15 +480,15 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   resp_meta.allocate.bits  := RegEnable(s2_allocEntry, s2_fire)
 
   // Update in loop
-  val updateRealTarget = update.full_target
+  val updateRealTarget = update.fullTarget
   when (updateValid) {
     when (updateMeta.provider.valid) {
       val provider = updateMeta.provider.bits
-      XSDebug(true.B, p"update provider $provider, pred cycle ${updateMeta.pred_cycle.getOrElse(0.U)}\n")
+      XSDebug(true.B, p"update provider $provider, pred cycle ${updateMeta.predCycle.getOrElse(0.U)}\n")
       val altProvider = updateMeta.altProvider.bits
       val usedAltpred = updateMeta.altProvider.valid && updateMeta.providerCtr === 0.U
       when (usedAltpred && updateMisPred) { // update altpred if used as pred
-        XSDebug(true.B, p"update altprovider $altProvider, pred cycle ${updateMeta.pred_cycle.getOrElse(0.U)}\n")
+        XSDebug(true.B, p"update altprovider $altProvider, pred cycle ${updateMeta.predCycle.getOrElse(0.U)}\n")
 
         updateMask(altProvider)    := true.B
         updateUMask(altProvider)   := false.B
@@ -520,7 +520,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
     val allocate = updateMeta.allocate
     tickCtr := satUpdate(tickCtr, TickWidth, !allocate.valid)
     when (allocate.valid) {
-      XSDebug(true.B, p"allocate new table entry, pred cycle ${updateMeta.pred_cycle.getOrElse(0.U)}\n")
+      XSDebug(true.B, p"allocate new table entry, pred cycle ${updateMeta.predCycle.getOrElse(0.U)}\n")
       updateMask(allocate.bits)  := true.B
       updateCorrect(allocate.bits) := true.B // useless for alloc
       updateTarget(allocate.bits) := updateRealTarget
@@ -552,7 +552,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
     tables(i).io.update.u := RegNext(updateU(i))
     tables(i).io.update.pc := RegNext(update.pc)
     // use fetch pc instead of instruction pc
-    tables(i).io.update.folded_hist := RegNext(updateFhist)
+    tables(i).io.update.foldedHist := RegNext(updateFhist)
   }
 
   // all should be ready for req
@@ -615,7 +615,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
     //   val m = updateMetas(b)
     //   // val bri = u.metas(b)
     //   XSDebug(updateValids(b), "update(%d): pc=%x, cycle=%d, hist=%x, taken:%b, misPred:%d, bimctr:%d, pvdr(%d):%d, altDiff:%d, pvdrU:%d, pvdrCtr:%d, alloc(%d):%d\n",
-    //     b.U, update.pc, 0.U, updateHist.predHist, update.full_pred.taken_mask(b), update.mispred_mask(b),
+    //     b.U, update.pc, 0.U, updateHist.predHist, update.fullPred.taken_mask(b), update.mispred_mask(b),
     //     0.U, m.provider.valid, m.provider.bits, m.altDiffers, m.providerU, m.providerCtr, m.allocate.valid, m.allocate.bits
     //   )
     // }
@@ -630,7 +630,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
         s2_resps(i).bits.u, s2_resps(i).bits.target)
     }
   }
-  XSDebug(updateValid, p"pc: ${Hexadecimal(update.pc)}, target: ${Hexadecimal(update.full_target)}\n")
+  XSDebug(updateValid, p"pc: ${Hexadecimal(update.pc)}, target: ${Hexadecimal(update.fullTarget)}\n")
   XSDebug(updateValid, updateMeta.toPrintable+p"\n")
   XSDebug(updateValid, p"correct(${!updateMisPred})\n")
 

@@ -54,13 +54,6 @@ trait TageParams extends HasBPUConst with HasXSParameter {
 
   def unconf(ctr: UInt) = posUnconf(ctr) || negUnconf(ctr)
 
-//  def satUpdate(old: UInt, len: Int, taken: Bool): UInt = {
-//    val oldSatTaken = old === ((1 << len) - 1).U
-//    val oldSatNotTaken = old === 0.U
-//    Mux(oldSatTaken && taken, ((1 << len) - 1).U,
-//      Mux(oldSatNotTaken && !taken, 0.U,
-//        Mux(taken, old + 1.U, old - 1.U)))
-//  }
 }
 
 trait HasFoldedHistory {
@@ -90,7 +83,7 @@ abstract class TageModule(implicit p: Parameters)
 class TageReq(implicit p: Parameters) extends TageBundle {
   val pc = UInt(VAddrBits.W)
   val ghist = UInt(HistoryLength.W)
-  val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
 }
 
 class TageResp(implicit p: Parameters) extends TageBundle {
@@ -101,7 +94,7 @@ class TageResp(implicit p: Parameters) extends TageBundle {
 
 class TageUpdate(implicit p: Parameters) extends TageBundle {
   val pc = UInt(VAddrBits.W)
-  val folded_hist = new AllFoldedHistories(foldedGHistInfos)
+  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
   val ghist = UInt(HistoryLength.W)
   // update tag and ctr
   val mask = Bool()
@@ -127,7 +120,7 @@ class TageMeta(implicit p: Parameters)
   val allocates = UInt(TageNTables.W)
   val takens = Bool()
   val scMeta = if (EnableSC) Some(new SCMeta(SCNTables)) else None
-  val pred_cycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
+  val predCycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
   val use_alt_on_na = if (!env.FPGAPlatform) Some(Bool()) else None
 
   def altPreds = basecnts(1)
@@ -270,9 +263,9 @@ class TageTable
 
   def getFoldedHistoryInfo = allFhInfos.filter(_._1 >0).toSet
   def compute_tag_and_hash(unhashed_idx: UInt, allFh: AllFoldedHistories) = {
-    val idx_fh = allFh.getHistWithInfo(idxFhInfo).folded_hist
-    val tag_fh = allFh.getHistWithInfo(tagFhInfo).folded_hist
-    val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).folded_hist
+    val idx_fh = allFh.getHistWithInfo(idxFhInfo).foldedHist
+    val tag_fh = allFh.getHistWithInfo(tagFhInfo).foldedHist
+    val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).foldedHist
     // require(idx_fh.getWidth == log2Ceil(nRows))
     val idx = (unhashed_idx ^ idx_fh)(log2Ceil(nRowsPerBr)-1, 0)
     val tag = (unhashed_idx ^ tag_fh ^ (alt_tag_fh << 1).asUInt) (tagLen - 1, 0)
@@ -283,9 +276,9 @@ class TageTable
   
   if (EnableGHistDiff) {
     val idx_history = compute_folded_ghist(io.req.bits.ghist, log2Ceil(nRowsPerBr))
-    val idx_fh = io.req.bits.folded_hist.getHistWithInfo(idxFhInfo)
-    XSError(idx_history =/= idx_fh.folded_hist, p"tage table $tableIdx has different fh," +
-      p" ghist: ${Binary(idx_history)}, fh: ${Binary(idx_fh.folded_hist)}\n")
+    val idx_fh = io.req.bits.foldedHist.getHistWithInfo(idxFhInfo)
+    XSError(idx_history =/= idx_fh.foldedHist, p"tage table $tableIdx has different fh," +
+      p" ghist: ${Binary(idx_history)}, fh: ${Binary(idx_fh.foldedHist)}\n")
   }
   // pc is start address of basic block, most 2 branch inst in block
   // def getUnhashedIdx(pc: UInt) = pc >> (instOffsetBits+log2Ceil(TageBanks))
@@ -316,7 +309,7 @@ class TageTable
   }
 
 
-  val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.folded_hist)
+  val (s0_idx, s0_tag) = compute_tag_and_hash(req_unhashed_idx, io.req.bits.foldedHist)
   val s0_bank_req_1h = get_bank_mask(s0_idx)
 
     for (b <- 0 until nBanks) {
@@ -360,16 +353,16 @@ class TageTable
 
   if (EnableGHistDiff) {
     val update_idx_history = compute_folded_ghist(io.update.ghist, log2Ceil(nRowsPerBr))
-    val update_idx_fh = io.update.folded_hist.getHistWithInfo(idxFhInfo)
-    XSError(update_idx_history =/= update_idx_fh.folded_hist && io.update.mask,
+    val update_idx_fh = io.update.foldedHist.getHistWithInfo(idxFhInfo)
+    XSError(update_idx_history =/= update_idx_fh.foldedHist && io.update.mask,
       p"tage table $tableIdx has different fh when update," +
-      p" ghist: ${Binary(update_idx_history)}, fh: ${Binary(update_idx_fh.folded_hist)}\n")
+      p" ghist: ${Binary(update_idx_history)}, fh: ${Binary(update_idx_fh.foldedHist)}\n")
   }
   // Use fetchpc to compute hash
   val per_bank_update_wdata = Wire(Vec(nBanks, new TageEntry)) // corresponds to physical branches
 
   val update_unhashed_idx = getUnhashedIdx(io.update.pc)
-  val (update_idx, update_tag) = compute_tag_and_hash(update_unhashed_idx, io.update.folded_hist)
+  val (update_idx, update_tag) = compute_tag_and_hash(update_unhashed_idx, io.update.foldedHist)
   val update_req_bank_1h = get_bank_mask(update_idx)
   val update_idx_in_bank = get_bank_idx(update_idx)
   
@@ -503,7 +496,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
       val t = Module(new TageTable(nRows, histLen, tagLen, i, parentName = parentName + s"tagtable${i}_"))
       t.io.req.valid := io.s0_fire(1)
       t.io.req.bits.pc := s0_pc_dup(1)
-      t.io.req.bits.folded_hist := io.in.bits.folded_hist(1)
+      t.io.req.bits.foldedHist := io.in.bits.foldedHist(1)
       t.io.req.bits.ghist := io.in.bits.ghist
       t
     }
@@ -528,7 +521,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
 
   val s1_resps = VecInit(tables.map(_.io.resps))
 
-  //val s1_bim = io.in.bits.resp_in(0).s1.full_pred
+  //val s1_bim = io.in.bits.resp_in(0).s1.fullPred
   // val s2_bim = RegEnable(s1_bim, io.s1_fire)
 
   val debug_pc_s0 = s0_pc_dup(1)
@@ -556,7 +549,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   val s3_tageTakens_dup = RegEnable(VecInit(s2_tageTakens_dup), io.s2_fire(1))
 
   io.out := io.in.bits.resp_in(0)
-  io.out.last_stage_meta := resp_meta.asUInt
+  io.out.lastStageMeta := resp_meta.asUInt
 
   val resp_s2 = io.out.s2
   val resp_s3 = io.out.s3
@@ -564,8 +557,8 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   // Update logic
   val u_valid = io.update(dupForTageSC).valid
   val update = io.update(dupForTageSC).bits
-  val updateValids = update.ftb_entry.brValids && u_valid && !update.ftb_entry.always_taken
-  val updateFHist = update.spec_info.folded_hist
+  val updateValids = update.ftbEntry.brValid && u_valid && !update.ftbEntry.alwaysTaken
+  val updateFHist = update.specInfo.foldedHist
 
   val updateMeta = update.meta.asTypeOf(new TageMeta)
 
@@ -613,7 +606,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   resp_meta.providers.bits     := RegEnable(s2_providers, io.s2_fire(1))
   resp_meta.providerResps      := RegEnable(s2_providerResps, io.s2_fire(1))
 
-  resp_meta.pred_cycle.foreach(_ := RegEnable(GTimer(), io.s2_fire(1)))
+  resp_meta.predCycle.foreach(_ := RegEnable(GTimer(), io.s2_fire(1)))
   resp_meta.use_alt_on_na.foreach(_ := RegEnable(s2_useAltOnNa, io.s2_fire(1)))
 
   // Create a mask fo tables which did not hit our query, and also contain useless entries
@@ -639,22 +632,22 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   resp_meta.basecnts   := RegEnable(s2_basecnts, io.s2_fire(1))
 
   val tage_enable_dup = RegNext(dup(io.ctrl.tage_enable))
-  for (tage_enable & fp & s2_tageTakens <- tage_enable_dup zip resp_s2.full_pred zip s2_tageTakens_dup) {
+  for (tage_enable & fp & s2_tageTakens <- tage_enable_dup zip resp_s2.fullPred zip s2_tageTakens_dup) {
     when (tage_enable) {
-      fp.br_taken_mask := s2_tageTakens
+      fp.br_taken := s2_tageTakens
     }
     dontTouch(tage_enable)
   }
-  for (tage_enable & fp & s3_tageTakens <- tage_enable_dup zip resp_s3.full_pred zip s3_tageTakens_dup) {
+  for (tage_enable & fp & s3_tageTakens <- tage_enable_dup zip resp_s3.fullPred zip s3_tageTakens_dup) {
     when (tage_enable) {
-      fp.br_taken_mask := s3_tageTakens
+      fp.br_taken := s3_tageTakens
     }
   }
 
   //---------------- update logics below ------------------//
   val hasUpdate = updateValids
   val updateMispred = updateMisPreds.head
-  val updateTaken = hasUpdate && update.br_taken_mask
+  val updateTaken = hasUpdate && update.br_taken
 
   val updateProvided     = updateMeta.providers.valid
   val updateProvider     = updateMeta.providers.bits
@@ -779,7 +772,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
     tables(i).io.update.reset_u := RegNext(updateResetU, false.B)
     // use fetch pc instead of instruction pc
     tables(i).io.update.pc       := RegEnable(update.pc, 0.U, updateValids)
-    tables(i).io.update.folded_hist := RegEnable(updateFHist, updateValids)
+    tables(i).io.update.foldedHist := RegEnable(updateFHist, updateValids)
     tables(i).io.update.ghist := RegEnable(io.update(dupForTageSC).bits.ghist, 0.U, updateValids)
   }
 
@@ -830,7 +823,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   )
 
   XSDebug(updateValids, "update: pc=%x, cycle=%d, taken:%b, misPred:%d, bimctr:%d, pvdr(%d):%d, altDiff:%d, pvdrU:%d, pvdrCtr:%d, alloc:%b\n",
-    update.pc, 0.U, update.br_taken_mask, update.mispred_mask.head,
+    update.pc, 0.U, update.br_taken, update.mispred_mask.head,
     0.U, updateMeta.providers.valid, updateMeta.providers.bits, updateMeta.altDiffers, updateMeta.providerResps.u,
     updateMeta.providerResps.ctr, updateMeta.allocates
   )
