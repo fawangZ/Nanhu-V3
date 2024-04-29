@@ -110,7 +110,7 @@ class FtqPdEntry(implicit p: Parameters) extends XSBundle {
   val jmpInfo = ValidUndirectioned(Vec(3, Bool()))
   val jmpOffset = UInt(log2Ceil(PredictWidth).W)
   val jalTarget = UInt(VAddrBits.W)
-  val rvcMask = Vec(PredictWidth, Bool())
+  val rvcMask = Bool()
   def hasJal  = jmpInfo.valid && !jmpInfo.bits(0)
   def hasJalr = jmpInfo.valid && jmpInfo.bits(0)
   def hasCall = jmpInfo.valid && jmpInfo.bits(1)
@@ -118,26 +118,13 @@ class FtqPdEntry(implicit p: Parameters) extends XSBundle {
 
   def fromPdWb(pdWb: PredecodeWritebackBundle) = {
     val pds = pdWb.pd
+    val jumpMask = pds.map(pd => (pd.isJal || pd.isJalr) && pd.valid)
     this.brMask := VecInit(pds.map(pd => pd.isBr && pd.valid))
-    this.jmpInfo.valid := VecInit(pds.map(pd => (pd.isJal || pd.isJalr) && pd.valid)).asUInt.orR
-    this.jmpInfo.bits := ParallelPriorityMux(pds.map(pd => (pd.isJal || pd.isJalr) && pd.valid),
-                                             pds.map(pd => VecInit(pd.isJalr, pd.isCall, pd.isRet)))
-    this.jmpOffset := ParallelPriorityEncoder(pds.map(pd => (pd.isJal || pd.isJalr) && pd.valid))
-    this.rvcMask := VecInit(pds.map(pd => pd.isRVC))
+    this.jmpInfo.valid := VecInit(jumpMask).asUInt.orR
+    this.jmpInfo.bits := ParallelPriorityMux(jumpMask, pds.map(pd => VecInit(pd.isJalr, pd.isCall, pd.isRet)))
+    this.jmpOffset := ParallelPriorityEncoder(jumpMask)
+    this.rvcMask := ParallelPriorityMux(jumpMask, pds.map(_.isRVC))
     this.jalTarget := pdWb.jalTarget
-  }
-
-  def toPd(offset: UInt) = {
-    require(offset.getWidth == log2Ceil(PredictWidth))
-    val pd = Wire(new PreDecodeInfo)
-    pd.valid := true.B
-    pd.isRVC := rvcMask(offset)
-    val isBr = brMask(offset)
-    val isJalr = offset === jmpOffset && jmpInfo.valid && jmpInfo.bits(0)
-    pd.brType := Cat(offset === jmpOffset && jmpInfo.valid, isJalr || isBr)
-    pd.isCall := offset === jmpOffset && jmpInfo.valid && jmpInfo.bits(1)
-    pd.isRet  := offset === jmpOffset && jmpInfo.valid && jmpInfo.bits(2)
-    pd
   }
 }
 
@@ -223,7 +210,7 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   val new_jmp_is_jalr = entry_has_jmp &&  pd.jmpInfo.bits(0) && io.cfiIndex.valid
   val new_jmp_is_call = entry_has_jmp &&  pd.jmpInfo.bits(1) && io.cfiIndex.valid
   val new_jmp_is_ret  = entry_has_jmp &&  pd.jmpInfo.bits(2) && io.cfiIndex.valid
-  val last_jmp_rvi = entry_has_jmp && pd.jmpOffset === (PredictWidth-1).U && !pd.rvcMask.last
+  val last_jmp_rvi = entry_has_jmp && pd.jmpOffset === (PredictWidth-1).U && !pd.rvcMask
   // val last_br_rvi = cfi_is_br && io.cfiIndex.bits === (PredictWidth-1).U && !pd.rvcMask.last
 
   val cfi_is_jal = io.cfiIndex.bits === pd.jmpOffset && new_jmp_is_jal
@@ -248,14 +235,14 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
     init_entry.setLowerStatByTarget(io.start_addr, Mux(cfi_is_jalr, io.target, pd.jalTarget))
   }
 
-  val jmpPft = getLower(io.start_addr) +& pd.jmpOffset +& Mux(pd.rvcMask(pd.jmpOffset), 1.U, 2.U)
+  val jmpPft = getLower(io.start_addr) +& pd.jmpOffset +& Mux(pd.rvcMask, 1.U, 2.U)
   init_entry.pftAddr := Mux(entry_has_jmp && !last_jmp_rvi, jmpPft, getLower(io.start_addr))
   init_entry.carry   := Mux(entry_has_jmp && !last_jmp_rvi, jmpPft(carryPos-instOffsetBits), true.B)
   init_entry.isJalr := new_jmp_is_jalr
   init_entry.isCall := new_jmp_is_call
   init_entry.isRet  := new_jmp_is_ret
   // that means fall thru points to the middle of an inst
-  init_entry.last_may_be_rvi_call := pd.jmpOffset === (PredictWidth-1).U && !pd.rvcMask(pd.jmpOffset)
+  init_entry.last_may_be_rvi_call := pd.jmpOffset === (PredictWidth-1).U && !pd.rvcMask
 
   // if hit, check whether a new cfi(only br is possible) is detected
   val oe = io.oldEntry
