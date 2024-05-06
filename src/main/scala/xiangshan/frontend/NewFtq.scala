@@ -473,7 +473,6 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
   ftqRedirectSram.io.waddr := io.fromBpu.resp.bits.lastStage.ftqIdx.value
   ftqRedirectSram.io.wdata := io.fromBpu.resp.bits.lastStageSpecInfo
   println(f"ftq redirect SRAM: entry ${ftqRedirectSram.io.wdata.getWidth} * ${FtqSize} * 3")
-  println(f"ftq redirect SRAM: ahead fh ${ftqRedirectSram.io.wdata.afhob.getWidth} * ${FtqSize} * 3")
 
   val ftqMetaSram = Module(new FtqNRSRAM(new FtqMetaEntry, 1, parentName = parentName + s"ftq_meta_1r_sram_"))
   // these info is intended to enq at the last stage of bpu

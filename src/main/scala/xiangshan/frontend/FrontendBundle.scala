@@ -471,11 +471,7 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
   }
 }
 
-class SpeculativeInfo(implicit p: Parameters) extends XSBundle
-  with HasBPUConst with BPUUtils {
-  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
-  val afhob = new AllAheadFoldedHistoryOldestBits(foldedGHistInfos)
-  val lastBrNumOH = UInt((numBr+1).W)
+class SpeculativeInfo(implicit p: Parameters) extends XSBundle with HasBPUConst with BPUUtils {
   val histPtr = new CGHPtr
   val rasSp = UInt(log2Ceil(RasSize).W)
   val rasTop = new RASEntry
