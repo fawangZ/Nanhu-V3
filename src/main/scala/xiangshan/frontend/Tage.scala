@@ -94,7 +94,6 @@ class TageResp(implicit p: Parameters) extends TageBundle {
 
 class TageUpdate(implicit p: Parameters) extends TageBundle {
   val pc = UInt(VAddrBits.W)
-  val foldedHist = new AllFoldedHistories(foldedGHistInfos)
   val ghist = UInt(HistoryLength.W)
   // update tag and ctr
   val mask = Bool()
@@ -283,7 +282,6 @@ class TageTable
   // pc is start address of basic block, most 2 branch inst in block
   // def getUnhashedIdx(pc: UInt) = pc >> (instOffsetBits+log2Ceil(TageBanks))
   def getUnhashedIdx(pc: UInt): UInt = (pc >> instOffsetBits).asUInt
-
   // val s1_pc = io.req.bits.pc
   val req_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
 
@@ -351,18 +349,23 @@ class TageTable
   io.resps.bits.unconf := per_br_unconf
 
 
-  if (EnableGHistDiff) {
-    val update_idx_history = compute_folded_ghist(io.update.ghist, log2Ceil(nRowsPerBr))
-    val update_idx_fh = io.update.foldedHist.getHistWithInfo(idxFhInfo)
-    XSError(update_idx_history =/= update_idx_fh.foldedHist && io.update.mask,
-      p"tage table $tableIdx has different fh when update," +
-      p" ghist: ${Binary(update_idx_history)}, fh: ${Binary(update_idx_fh.foldedHist)}\n")
-  }
+//  if (EnableGHistDiff) {
+//    val update_idx_history = compute_folded_ghist(io.update.ghist, log2Ceil(nRowsPerBr))
+//    val update_idx_fh = io.update.foldedHist.getHistWithInfo(idxFhInfo)
+//    XSError(update_idx_history =/= update_idx_fh.foldedHist && io.update.mask,
+//      p"tage table $tableIdx has different fh when update," +
+//      p" ghist: ${Binary(update_idx_history)}, fh: ${Binary(update_idx_fh.foldedHist)}\n")
+//  }
+
   // Use fetchpc to compute hash
+val updateFoldedHist = WireInit(0.U.asTypeOf(new AllFoldedHistories(foldedGHistInfos)))
+  updateFoldedHist.getHistWithInfo(idxFhInfo).foldedHist := compute_folded_ghist(io.update.ghist, log2Ceil(nRowsPerBr))
+  updateFoldedHist.getHistWithInfo(tagFhInfo).foldedHist := compute_folded_ghist(io.update.ghist, tagLen)
+  updateFoldedHist.getHistWithInfo(altTagFhInfo).foldedHist := compute_folded_ghist(io.update.ghist, tagLen - 1)
   val per_bank_update_wdata = Wire(Vec(nBanks, new TageEntry)) // corresponds to physical branches
 
   val update_unhashed_idx = getUnhashedIdx(io.update.pc)
-  val (update_idx, update_tag) = compute_tag_and_hash(update_unhashed_idx, io.update.foldedHist)
+  val (update_idx, update_tag) = compute_tag_and_hash(update_unhashed_idx, updateFoldedHist)
   val update_req_bank_1h = get_bank_mask(update_idx)
   val update_idx_in_bank = get_bank_idx(update_idx)
   
@@ -558,7 +561,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   val u_valid = io.update(dupForTageSC).valid
   val update = io.update(dupForTageSC).bits
   val updateValids = update.ftbEntry.brValid && u_valid && !update.ftbEntry.alwaysTaken
-  val updateFHist = update.specInfo.foldedHist
+//  val updateFHist = update.specInfo.foldedHist
 
   val updateMeta = update.meta.asTypeOf(new TageMeta)
 
@@ -772,7 +775,6 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
     tables(i).io.update.reset_u := RegNext(updateResetU, false.B)
     // use fetch pc instead of instruction pc
     tables(i).io.update.pc       := RegEnable(update.pc, 0.U, updateValids)
-    tables(i).io.update.foldedHist := RegEnable(updateFHist, updateValids)
     tables(i).io.update.ghist := RegEnable(io.update(dupForTageSC).bits.ghist, 0.U, updateValids)
   }
 
