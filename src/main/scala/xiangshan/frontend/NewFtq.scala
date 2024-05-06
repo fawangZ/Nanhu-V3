@@ -467,12 +467,12 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
   ftqPcMem.io.wdata.fromBranchPrediction(bpuInResp)
 
   //                                                            ifuRedirect + backendRedirect + commit
-  val ftqRedirectSram = Module(new FtqNRSRAM(new FtqRedirectEntry, 1+1+1, parentName = parentName + s"ftq_redirect_sram_"))
+  val ftqRedirectMem = Module(new SyncDataModuleTemplate(new FtqRedirectEntry, FtqSize, 1+1+1, 1, "FtqEntry"))
   // these info is intended to enq at the last stage of bpu
-  ftqRedirectSram.io.wen := io.fromBpu.resp.bits.lastStage.valid(dupForFtq)
-  ftqRedirectSram.io.waddr := io.fromBpu.resp.bits.lastStage.ftqIdx.value
-  ftqRedirectSram.io.wdata := io.fromBpu.resp.bits.lastStageSpecInfo
-  println(f"ftq redirect SRAM: entry ${ftqRedirectSram.io.wdata.getWidth} * ${FtqSize} * 3")
+  ftqRedirectMem.io.wen(0) := io.fromBpu.resp.bits.lastStage.valid(dupForFtq)
+  ftqRedirectMem.io.waddr(0) := io.fromBpu.resp.bits.lastStage.ftqIdx.value
+  ftqRedirectMem.io.wdata(0) := io.fromBpu.resp.bits.lastStageSpecInfo
+  println(f"ftq redirect Mem: entry ${ftqRedirectMem.io.wdata.getWidth} * ${FtqSize} * 3")
 
   val ftqMetaSram = Module(new FtqNRSRAM(new FtqMetaEntry, 1, parentName = parentName + s"ftq_meta_1r_sram_"))
   // these info is intended to enq at the last stage of bpu
@@ -800,15 +800,14 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
    */
 
   // redirect read cfiInfo, couples to redirectGen s2
-  ftqRedirectSram.io.ren.init.last := backendRedirect.valid
-  ftqRedirectSram.io.raddr.init.last := backendRedirect.bits.ftqIdx.value
+  ftqRedirectMem.io.raddr.init.last := backendRedirect.bits.ftqIdx.value
 
   ftbEntryMem.io.raddr.init.last := backendRedirect.bits.ftqIdx.value
 
-  val stage3CfiInfo = ftqRedirectSram.io.rdata.init.last
+  val stage3CfiInfo = ftqRedirectMem.io.rdata.init.last
   val fromBackendRedirect = WireInit(backendRedirectReg)
   val backendRedirectCfi = fromBackendRedirect.bits.cfiUpdate
-  backendRedirectCfi.fromFtqRedirectSram(stage3CfiInfo)
+  backendRedirectCfi.fromFtqRedirectMem(stage3CfiInfo)
 
   val r_ftb_entry = ftbEntryMem.io.rdata.init.last
   val r_ftqOffset = fromBackendRedirect.bits.ftqOffset
@@ -845,13 +844,12 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
   val ifuRedirectToBpu = WireInit(ifuRedirectReg)
   ifuFlush := fromIfuRedirect.valid || ifuRedirectToBpu.valid
 
-  ftqRedirectSram.io.ren.head := fromIfuRedirect.valid
-  ftqRedirectSram.io.raddr.head := fromIfuRedirect.bits.ftqIdx.value
+  ftqRedirectMem.io.raddr.head := fromIfuRedirect.bits.ftqIdx.value
 
   ftbEntryMem.io.raddr.head := fromIfuRedirect.bits.ftqIdx.value
 
   val toBpuCfi = ifuRedirectToBpu.bits.cfiUpdate
-  toBpuCfi.fromFtqRedirectSram(ftqRedirectSram.io.rdata.head)
+  toBpuCfi.fromFtqRedirectMem(ftqRedirectMem.io.rdata.head)
   when (ifuRedirectReg.bits.cfiUpdate.pd.isRet) {
     toBpuCfi.target := toBpuCfi.rasEntry.retAddr
   }
@@ -980,9 +978,8 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
       RegNext(ftqPcMem.io.commPtrPlus1_rdata.startAddr))
   ftqPdMem.io.raddr.last := commPtr.value
   val commitPd = ftqPdMem.io.rdata.last
-  ftqRedirectSram.io.ren.last := canCommit
-  ftqRedirectSram.io.raddr.last := commPtr.value
-  val commitSpecInfo = ftqRedirectSram.io.rdata.last
+  ftqRedirectMem.io.raddr.last := commPtr.value
+  val commitSpecInfo = ftqRedirectMem.io.rdata.last
   ftqMetaSram.io.ren(0) := canCommit
   ftqMetaSram.io.raddr(0) := commPtr.value
   val commitMeta = ftqMetaSram.io.rdata(0)

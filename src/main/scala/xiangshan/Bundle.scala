@@ -84,7 +84,7 @@ class CfiUpdateInfo(implicit p: Parameters) extends XSBundle with HasBPUParamete
   val shift = Bool()
   val addIntoHist = Bool()
 
-  def fromFtqRedirectSram(entry: FtqRedirectEntry): CfiUpdateInfo = {
+  def fromFtqRedirectMem(entry: FtqRedirectEntry): CfiUpdateInfo = {
     this.histPtr := entry.histPtr
     this.rasSp := entry.rasSp
     this.rasEntry := entry.rasTop
