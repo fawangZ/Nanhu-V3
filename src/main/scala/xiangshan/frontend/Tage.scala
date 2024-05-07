@@ -86,11 +86,17 @@ class TageReq(implicit p: Parameters) extends TageBundle {
   val foldedHist = new AllFoldedHistories(foldedGHistInfos)
 }
 
-class TageResp(implicit p: Parameters) extends TageBundle {
+class TageResp_meta(implicit p: Parameters) extends TageBundle with TageParams {
   val ctr = UInt(TageCtrBits.W)
   val u = Bool()
+}
+
+class TageResp(implicit p: Parameters) extends TageResp_meta {
+  // val ctr = UInt(TageCtrBits.W)
+  // val u = Bool()
   val unconf = Bool()
 }
+
 
 class TageUpdate(implicit p: Parameters) extends TageBundle {
   val pc = UInt(VAddrBits.W)
@@ -110,20 +116,23 @@ class TageMeta(implicit p: Parameters)
   extends TageBundle with HasSCParameter
 {
   val providers = ValidUndirectioned(UInt(log2Ceil(TageNTables).W))
-  val providerResps = new TageResp
+  val providerResps = new TageResp_meta
   // val altProviders = Vec(numBr, ValidUndirectioned(UInt(log2Ceil(TageNTables).W)))
   // val altProviderResps = Vec(numBr, new TageResp)
   val altUsed = Bool()
-  val altDiffers = Bool()
+  //val altDiffers = Bool()
   val basecnts = UInt(2.W)
   val allocates = UInt(TageNTables.W)
-  val takens = Bool()
+  //val takens = Bool()
   val scMeta = if (EnableSC) Some(new SCMeta(SCNTables)) else None
   val predCycle = if (!env.FPGAPlatform) Some(UInt(64.W)) else None
   val use_alt_on_na = if (!env.FPGAPlatform) Some(Bool()) else None
 
   def altPreds = basecnts(1)
   def allocateValid = allocates.orR
+
+  def altDiffers = basecnts(1) =/= providerResps.ctr(TageCtrBits - 1)
+  def takens = Mux(altUsed, basecnts(1), providerResps.ctr(TageCtrBits-1))
 }
 
 trait TBTParams extends HasXSParameter with TageParams {
@@ -536,7 +545,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   val s1_providerResps    = Wire(new TageResp)
   val s1_altUsed          = Wire(Bool())
   val s1_tageTakens       = Wire(Bool())
-  val s1_finalAltPreds    = Wire(Bool())
+  //val s1_finalAltPreds    = Wire(Bool())
   val s1_basecnts         = Wire(UInt(2.W))
   val s1_useAltOnNa       = Wire(Bool())
 
@@ -545,7 +554,7 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   val s2_providerResps    = RegEnable(s1_providerResps, io.s1_fire(1))
   val s2_altUsed          = RegEnable(s1_altUsed, io.s1_fire(1))
   val s2_tageTakens_dup   = io.s1_fire.map(f => RegEnable(s1_tageTakens, f))
-  val s2_finalAltPreds    = RegEnable(s1_finalAltPreds, io.s1_fire(1))
+  //val s2_finalAltPreds    = RegEnable(s1_finalAltPreds, io.s1_fire(1))
   val s2_basecnts         = RegEnable(s1_basecnts, io.s1_fire(1))
   val s2_useAltOnNa       = RegEnable(s1_useAltOnNa, io.s1_fire(1))
 
@@ -625,13 +634,13 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
 
   s1_altUsed       := !provided || providerInfo.use_alt_on_unconf
   s1_tageTakens    := Mux(s1_altUsed , bt.io.s1_cnt(1), providerInfo.resp.ctr(TageCtrBits-1))
-  s1_finalAltPreds := bt.io.s1_cnt(1)
+  //s1_finalAltPreds := bt.io.s1_cnt(1)
   s1_basecnts      := bt.io.s1_cnt
   s1_useAltOnNa    := providerInfo.use_alt_on_unconf
 
   resp_meta.altUsed    := RegEnable(s2_altUsed, io.s2_fire(1))
-  resp_meta.altDiffers := RegEnable(s2_finalAltPreds =/= s2_providerResps.ctr(TageCtrBits - 1), io.s2_fire(1)) // alt != provider
-  resp_meta.takens     := RegEnable(s2_tageTakens_dup(0), io.s2_fire(1))
+  //resp_meta.altDiffers := RegEnable(s2_finalAltPreds =/= s2_providerResps.ctr(TageCtrBits - 1), io.s2_fire(1)) // alt != provider
+  //resp_meta.takens     := RegEnable(s2_tageTakens_dup(0), io.s2_fire(1))
   resp_meta.basecnts   := RegEnable(s2_basecnts, io.s2_fire(1))
 
   val tage_enable_dup = RegNext(dup(io.ctrl.tage_enable))

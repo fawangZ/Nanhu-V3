@@ -72,7 +72,7 @@ class Composer(parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   io.s1_ready := components.map(_.io.s1_ready).reduce(_ && _)
   io.s2_ready := components.map(_.io.s2_ready).reduce(_ && _)
 
-  require(meta_sz < MaxMetaLength)
+  require(meta_sz <= MaxMetaLength)
   io.out.lastStageMeta := metas
 
   var update_meta_dup = io.update.map(_.bits.meta).toArray
