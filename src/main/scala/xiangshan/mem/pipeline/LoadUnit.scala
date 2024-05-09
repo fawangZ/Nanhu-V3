@@ -300,19 +300,12 @@ class LoadUnit_S2(implicit p: Parameters) extends XSModule with HasLoadHelper wi
     val loadViolationQueryResp = Flipped(Valid(new LoadViolationQueryResp))
     val csrCtrl = Flipped(new CustomCSRCtrlIO)
     val sentFastUop = Input(Bool())
-    val static_pm = Input(Valid(Bool())) // valid for static, bits for mmio
     val s2_can_replay_from_fetch = Output(Bool()) // dirty code
     val loadDataFromDcache = Output(new LoadDataFromDcacheBundle)
     val lpvCancel = Output(Bool())
   })
 
   val pmp = WireInit(io.pmpResp)
-  when (io.static_pm.valid) {
-    pmp.ld := false.B
-    pmp.st := false.B
-    pmp.instr := false.B
-    pmp.mmio := io.static_pm.bits
-  }
 
   val EnableMem = io.in.bits.uop.loadStoreEnable && io.in.valid
   val s2_is_prefetch = io.in.bits.isSoftPrefetch
@@ -659,7 +652,6 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper with 
   io.dcache.s2_kill := load_s2.io.dcache_kill // to kill mmio resp which are redirected
   load_s2.io.dcacheResp <> io.dcache.resp
   load_s2.io.pmpResp <> io.pmp
-  load_s2.io.static_pm := RegEnable(io.tlb.resp.bits.static_pm,io.tlb.resp.valid)
   load_s2.io.lsq.forwardData <> io.lsq.forward.forwardData
   load_s2.io.lsq.forwardMask <> io.lsq.forward.forwardMask
   load_s2.io.lsq.forwardMaskFast <> io.lsq.forward.forwardMaskFast // should not be used in load_s2
@@ -702,7 +694,6 @@ class LoadUnit(implicit p: Parameters) extends XSModule with HasLoadHelper with 
       load_s1.io.in.valid && // valid load request
       !load_s1.io.s1_kill && // killed by load-load forwarding
       !load_s1.io.s1_cancel &&
-      !load_s1.io.dtlbResp.bits.fast_miss && // not mmio or tlb miss, pf / af not included here
       !io.lsq.forward.dataInvalidFast // forward failed
     ) &&
     !RegNext(load_s1.io.needLdVioCheckRedo) && // load-load violation check: load paddr cam struct hazard

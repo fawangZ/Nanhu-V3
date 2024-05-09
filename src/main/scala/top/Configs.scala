@@ -108,40 +108,27 @@ class MinimalConfig(n: Int = 1) extends Config(
           useDmode = false,
           sameCycle = false,
           missSameCycle = true,
-          normalReplacer = Some("plru"),
-          superReplacer = Some("plru"),
-          normalNWays = 4,
-          normalNSets = 1,
-          superNWays = 2,
+          nWays = 4,
+          replacer = Some("plru"),
           shouldBlock = true
         ),
         ldtlbParameters = TLBParameters(
           name = "ldtlb",
-          normalNSets = 16, // 6when da or sa
-          normalNWays = 1, // when fa or sa
-          normalAssociative = "sa",
-          normalReplacer = Some("setplru"),
-          superNWays = 4,
-          normalAsVictim = true,
+          nWays = 16,
+          replacer = Some("plru"),
           partialStaticPMP = true,
           outReplace = false
         ),
         sttlbParameters = TLBParameters(
           name = "sttlb",
-          normalNSets = 16, // when da or sa
-          normalNWays = 1, // when fa or sa
-          normalAssociative = "sa",
-          normalReplacer = Some("setplru"),
-          normalAsVictim = true,
-          superNWays = 4,
+          nWays = 16,
+          replacer = Some("plru"),
           partialStaticPMP = true,
           outReplace = false
         ),
         btlbParameters = TLBParameters(
           name = "btlb",
-          normalNSets = 1,
-          normalNWays = 8,
-          superNWays = 2
+          nWays = 8,
         ),
         l2tlbParameters = L2TLBParameters(
           l1Size = 4,

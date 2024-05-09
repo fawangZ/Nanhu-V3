@@ -163,17 +163,10 @@ class StoreUnit_S2(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle() {
     val in = Flipped(Decoupled(new LsPipelineBundle))
     val pmpResp = Flipped(new PMPRespBundle)
-    val static_pm = Input(Valid(Bool()))
     val out = Decoupled(new LsPipelineBundle)
   })
   val EnableMem = io.in.bits.uop.loadStoreEnable
   val pmp = WireInit(io.pmpResp)
-  when (io.static_pm.valid) {
-    pmp.ld := false.B
-    pmp.st := false.B
-    pmp.instr := false.B
-    pmp.mmio := io.static_pm.bits
-  }
 
   val s2_exception = ExceptionNO.selectByFu(io.out.bits.uop.cf.exceptionVec, staCfg).asUInt.orR && EnableMem
   val is_mmio = (io.in.bits.mmio || pmp.mmio) && EnableMem
@@ -252,8 +245,6 @@ class StoreUnit(implicit p: Parameters) extends XSModule with HasPerfLogging {
   io.feedbackSlow := Pipe(store_s1.io.rsFeedback)
 
   store_s2.io.pmpResp <> io.pmp
-//  store_s2.io.static_pm := RegNext(io.tlb.resp.bits.static_pm)
-  store_s2.io.static_pm := RegEnable(io.tlb.resp.bits.static_pm,io.tlb.resp.valid)
   io.lsq_replenish := store_s2.io.out.bits // mmio and exception
   PipelineConnect(store_s2.io.out, store_s3.io.in, true.B, store_s2.io.out.bits.uop.robIdx.needFlush(io.redirect_dup(2)))
 

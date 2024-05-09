@@ -59,8 +59,6 @@ class AtomicsUnit(implicit p: Parameters) extends XSModule with MemoryOpConstant
   val paddr = Reg(UInt())
   val vaddr = in.src(0)
   val is_mmio = Reg(Bool())
-  // pmp check
-  val static_pm = Reg(Valid(Bool())) // valid for static, bits for mmio
   // dcache response data
   val resp_data = Reg(UInt())
   val resp_data_wire = WireInit(0.U)
@@ -134,7 +132,6 @@ class AtomicsUnit(implicit p: Parameters) extends XSModule with MemoryOpConstant
       //software is used to restrict atomic instructions from accessing mmio. Now if is_mmio is true,we treat it as an exception
       exceptionVec(storeAccessFault)    := io.dtlb.resp.bits.excp(0).af.st
       exceptionVec(loadAccessFault)     := io.dtlb.resp.bits.excp(0).af.ld
-      static_pm := io.dtlb.resp.bits.static_pm
 
       when (!io.dtlb.resp.bits.miss) {
         when (!addrAligned) {
@@ -153,12 +150,6 @@ class AtomicsUnit(implicit p: Parameters) extends XSModule with MemoryOpConstant
 
   when (state === s_pm) {
     val pmp = WireInit(io.pmpResp)
-    when (static_pm.valid) {
-      pmp.ld := false.B
-      pmp.st := false.B
-      pmp.instr := false.B
-      pmp.mmio := static_pm.bits
-    }
     is_mmio := pmp.mmio
     // NOTE: only handle load/store exception here, if other exception happens, don't send here
     val exception_va = exceptionVec(storePageFault) || exceptionVec(loadPageFault) ||

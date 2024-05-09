@@ -82,11 +82,8 @@ class TlbPermBundle(implicit p: Parameters) extends TlbBundle {
   val w = Bool()
   val r = Bool()
 
-  val pm = new TlbPMBundle
-
   override def toPrintable: Printable = {
-    p"pf:${pf} af:${af} d:${d} a:${a} g:${g} u:${u} x:${x} w:${w} r:${r} " +
-    p"pm:${pm}"
+    p"pf:${pf} af:${af} d:${d} a:${a} g:${g} u:${u} x:${x} w:${w} r:${r} "
   }
 }
 
@@ -233,7 +230,7 @@ class TlbEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parameters) 
     }
   }
 
-  def apply(item: PtwResp, asid: UInt, pm: PMPConfig): TlbEntry = {
+  def apply(item: PtwResp, asid: UInt): TlbEntry = {
     this.tag := {if (pageNormal) item.entry.tag else item.entry.tag(vpnLen-1, vpnnLen)}
     this.asid := asid
     val inner_level = item.entry.level.getOrElse(0.U)
@@ -255,8 +252,6 @@ class TlbEntry(pageNormal: Boolean, pageSuper: Boolean)(implicit p: Parameters) 
     this.perm.x := ptePerm.x
     this.perm.w := ptePerm.w
     this.perm.r := ptePerm.r
-
-    this.perm.pm.assign_ap(pm)
 
     this
   }
@@ -321,16 +316,8 @@ class TlbStorageIO(nSets: Int, nWays: Int, ports: Int, nDups: Int = 1)(implicit 
   val w = Flipped(ValidIO(new Bundle {
     val wayIdx = Output(UInt(log2Up(nWays).W))
     val data = Output(new PtwResp)
-    val data_replenish = Output(new PMPConfig)
   }))
-  val victim = new Bundle {
-    val out = ValidIO(Output(new Bundle {
-      val entry = new TlbEntry(pageNormal = true, pageSuper = false)
-    }))
-    val in = Flipped(ValidIO(Output(new Bundle {
-      val entry = new TlbEntry(pageNormal = true, pageSuper = false)
-    })))
-  }
+
   val access = Vec(ports, new ReplaceAccessBundle(nSets, nWays))
 
   def r_req_apply(valid: Bool, vpn: UInt, asid: UInt, i: Int): Unit = {
@@ -342,11 +329,10 @@ class TlbStorageIO(nSets: Int, nWays: Int, ports: Int, nDups: Int = 1)(implicit 
     (this.r.resp_hit_sameCycle(i), this.r.resp(i).bits.hit, this.r.resp(i).bits.ppn, this.r.resp(i).bits.perm)
   }
 
-  def w_apply(valid: Bool, wayIdx: UInt, data: PtwResp, data_replenish: PMPConfig): Unit = {
+  def w_apply(valid: Bool, wayIdx: UInt, data: PtwResp): Unit = {
     this.w.valid := valid
     this.w.bits.wayIdx := wayIdx
     this.w.bits.data := data
-    this.w.bits.data_replenish := data_replenish
   }
 
 }
@@ -374,12 +360,10 @@ class ReplaceIO(Width: Int, nSets: Int, nWays: Int)(implicit p: Parameters) exte
 
 class TlbReplaceIO(Width: Int, q: TLBParameters)(implicit p: Parameters) extends
   TlbBundle {
-  val normalPage = new ReplaceIO(Width, q.normalNSets, q.normalNWays)
-  val superPage = new ReplaceIO(Width, q.superNSets, q.superNWays)
+  val page = new ReplaceIO(Width, 1, q.nWays)
 
   def apply_sep(in: Seq[TlbReplaceIO], vpn: UInt) = {
-    this.normalPage.apply_sep(in.map(_.normalPage), vpn)
-    this.superPage.apply_sep(in.map(_.superPage), vpn)
+    this.page.apply_sep(in.map(_.page), vpn)
   }
 
 }
@@ -408,12 +392,10 @@ class TlbExceptionBundle(implicit p: Parameters) extends TlbBundle {
 class TlbResp(nDups: Int = 1)(implicit p: Parameters) extends TlbBundle {
   val paddr = Vec(nDups, Output(UInt(PAddrBits.W)))
   val miss = Output(Bool())
-  val fast_miss = Output(Bool()) // without sram part for timing optimization
   val excp = Vec(nDups, new Bundle {
     val pf = new TlbExceptionBundle()
     val af = new TlbExceptionBundle()
   })
-  val static_pm = Output(Valid(Bool())) // valid for static, bits for mmio result from normal entries
   val ptwBack = Output(Bool()) // when ptw back, wake up replay rs's state
 
   override def toPrintable: Printable = {
