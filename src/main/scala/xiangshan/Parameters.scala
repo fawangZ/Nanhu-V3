@@ -127,6 +127,7 @@ case class XSCoreParameters
       (preds, ras.io.out)
     }),
   IBufSize: Int = 48,
+  IBufNBank: Int = 4,
   DecodeWidth: Int = 4,
   RenameWidth: Int = 4,
   CommitWidth: Int = 6,
@@ -344,6 +345,7 @@ trait HasXSParameter {
   val CacheLineHalfWord = CacheLineSize / 16
   val ExtHistoryLength = HistoryLength + 64
   val IBufSize = coreParams.IBufSize
+  val IBufNBank = coreParams.IBufNBank
   val DecodeWidth = coreParams.DecodeWidth
   val RenameWidth = coreParams.RenameWidth
   val CommitWidth = coreParams.CommitWidth
