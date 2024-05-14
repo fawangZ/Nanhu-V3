@@ -53,8 +53,8 @@ class FauFTBWay(implicit p: Parameters) extends XSModule with FauFTBParams {
   private val tag   = Reg(UInt(tagSize.W))
   private val data  = Reg(new FTBEntry)
 
-  io.resp := data
-  io.respHit := tag === io.reqTag && valid
+  io.resp := Mux(io.writeValid, io.writeEntry, data)
+  io.respHit := tag === io.reqTag && valid || io.writeTag === io.reqTag && io.writeValid
 
   /** Write bypass to avoid multiple hit */
   io.updateHit := ((tag === io.updateReqTag) && valid) || ((io.writeTag === io.updateReqTag) && io.writeValid)
