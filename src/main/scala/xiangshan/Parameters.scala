@@ -92,11 +92,11 @@ case class XSCoreParameters
         ( 4096,  119,    8)),
   ITTageTableInfos: Seq[Tuple3[Int,Int,Int]] =
   //      Sets  Hist   Tag
-    Seq(( 256,    4,    9),
-        ( 256,    8,    9),
-        ( 512,   13,    9),
-        ( 512,   16,    9),
-        ( 512,   32,    9)),
+    Seq(( 32,    4,    9),
+        ( 32,    8,    9),
+        ( 64,   13,    9),
+        ( 64,   16,    9),
+        ( 64,   32,    9)),
   SCNRows: Int = 512,
   SCNTables: Int = 4,
   SCCtrBits: Int = 6,
