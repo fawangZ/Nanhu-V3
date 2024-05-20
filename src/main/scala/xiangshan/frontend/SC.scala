@@ -145,7 +145,7 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int, parentName:Str
   val wrbypasses = Module(new WrBypass(SInt(ctrBits.W), wrBypassEntries, log2Ceil(nRows), numWays=2))
 
   val ctrPos = io.update.tagePreds
-  val bypass_ctr = wrbypasses.io.hit_data(ctrPos)
+  val bypass_ctr = wrbypasses.io.hitData(ctrPos)
   val previous_ctr = io.update.oldCtrs
   val hit_and_valid = wrbypasses.io.hit && bypass_ctr.valid
   val oldCtr = Mux(hit_and_valid, bypass_ctr.bits, previous_ctr)
@@ -153,9 +153,9 @@ class SCTable(val nRows: Int, val ctrBits: Int, val histLen: Int, parentName:Str
   update_wdata := ctrUpdate(oldCtr, taken)
 
   wrbypasses.io.wen := io.update.mask
-  wrbypasses.io.write_idx := update_idx
-  wrbypasses.io.write_data := update_wdata_packed
-  wrbypasses.io.write_way_mask.foreach(_ := updateWayMask)
+  wrbypasses.io.writeIdx := update_idx
+  wrbypasses.io.writeData := update_wdata_packed
+  wrbypasses.io.writeWayMask.foreach(_ := updateWayMask)
 
 
   val u = io.update

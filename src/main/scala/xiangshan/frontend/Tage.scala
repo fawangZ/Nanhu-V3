@@ -206,10 +206,10 @@ class TageBTable(parentName:String = "Unknown")(implicit p: Parameters) extends 
 
   val wrbypass = Module(new WrBypass(UInt(2.W), bypassEntries, log2Up(BtSize), numWays = numBr))
   wrbypass.io.wen        := io.updateMask
-  wrbypass.io.write_idx  := updtIdx
-  wrbypass.io.write_way_mask.map(_ := io.updateMask)
-  wrbypass.io.write_data := newCtrs
-  val oldCtrs = Mux(wrbypass.io.hit && wrbypass.io.hit_data(0).valid, wrbypass.io.hit_data(0).bits,
+  wrbypass.io.writeIdx  := updtIdx
+  wrbypass.io.writeWayMask.map(_ := io.updateMask)
+  wrbypass.io.writeData := newCtrs
+  val oldCtrs = Mux(wrbypass.io.hit && wrbypass.io.hitData(0).valid, wrbypass.io.hitData(0).bits,
                                                                       io.updateCnt)
   newCtrs(0) := satUpdate(oldCtrs, 2, io.updateTakens)
 
@@ -391,14 +391,13 @@ class TageTable
   // replacer.access(touchSetIdx, touchWayIdx)
   
   val notSilentUpdate = Wire(Vec(nBanks, Bool()))
-  val updteWayMask = VecInit((0 until nBanks).map(a =>
-    io.update.mask && notSilentUpdate(a)))
+  val updteWayMask = VecInit((0 until nBanks).map(a => io.update.mask && notSilentUpdate(a)))
   val wrBypasses = Seq.fill(nBanks)(
     Module(new WrBypass(UInt(TageCtrBits.W), perBankWrbypassEntries, 1, tagWidth=tagLen)))
 
   for(a <- 0 until nBanks) {
-    val wrBypassCtr = wrBypasses(a).io.hit_data(0).bits
-    val wrBypassDataValid = wrBypasses(a).io.hit && wrBypasses(a).io.hit_data(0).valid        
+    val wrBypassCtr       = wrBypasses(a).io.hitData(0).bits
+    val wrBypassDataValid = wrBypasses(a).io.hit && wrBypasses(a).io.hitData(0).valid        
     updtBanksWdata(a).valid := true.B
     updtBanksWdata(a).tag   := updtTag
     updtBanksWdata(a).ctr   := Mux(io.update.alloc, Mux(io.update.takens, 4.U, 3.U),
@@ -407,10 +406,10 @@ class TageTable
     notSilentUpdate(a) := Mux(wrBypassDataValid,
       !silentUpdate(wrBypassCtr,          io.update.takens),
       !silentUpdate(io.update.oldCtrs, io.update.takens)) || io.update.alloc
-    wrBypasses(a).io.wen := io.update.mask && updtBank1h(a)
-    wrBypasses(a).io.write_idx := getBankIdx(updtIdx)
-    wrBypasses(a).io.write_tag.map(_ := updtTag)
-    wrBypasses(a).io.write_data(0) := updtBanksWdata(a).ctr
+    wrBypasses(a).io.wen       := io.update.mask && updtBank1h(a)
+    wrBypasses(a).io.writeIdx := getBankIdx(updtIdx)
+    wrBypasses(a).io.writeTag.map(_ := updtTag)
+    wrBypasses(a).io.writeData(0) := updtBanksWdata(a).ctr
   }
 
   // write
