@@ -279,9 +279,9 @@ class NewIFU(implicit p: Parameters) extends XSModule
   }
 
   val f2_foldpc = VecInit(f2_pc.map(i => XORFold(i(VAddrBits-1,1), MemPredPCWidth)))
-  val f2_jump_range = Fill(PredictWidth, !f2_ftq_req.ftqOffset.valid) | Fill(PredictWidth, 1.U(1.W)) >> ~f2_ftq_req.ftqOffset.bits
-  val f2_ftr_range  = Fill(PredictWidth,  f2_ftq_req.ftqOffset.valid) | Fill(PredictWidth, 1.U(1.W)) >> ~getBasicBlockIdx(f2_ftq_req.nextStartAddr, f2_ftq_req.startAddr)
-  val f2_instr_range = f2_jump_range & f2_ftr_range
+  val f2_jump_range = Fill(PredictWidth, !f2_ftq_req.ftqOffset.valid) | Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt, 1.U(1.W)) >> ~f2_ftq_req.ftqOffset.bits
+  val f2_ftr_range  = Fill(PredictWidth,  f2_ftq_req.ftqOffset.valid) | Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt, 1.U(1.W)) >> ~getBasicBlockIdx(f2_ftq_req.nextStartAddr, f2_ftq_req.startAddr)
+  val f2_instr_range = (f2_jump_range & f2_ftr_range)(PredictWidth - 1, 0)
   val f2_pf_vec = VecInit((0 until PredictWidth).map(i => (!isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_except_pf(0)   ||  isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_doubleLine &&  f2_except_pf(1))))
   val f2_af_vec = VecInit((0 until PredictWidth).map(i => (!isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_except_af(0)   ||  isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_doubleLine && f2_except_af(1))))
 
@@ -412,7 +412,7 @@ class NewIFU(implicit p: Parameters) extends XSModule
   XSError(f3_valid && f3PdDiff, "ifu f3_pd diff")
 
   when(f3_valid && !f3_ftq_req.ftqOffset.valid){
-    assert(f3_ftq_req_startAddr + 32.U >= f3_ftq_req_nextStartAddr , "More tha 32 Bytes fetch is not allowed!")
+    assert(f3_ftq_req_startAddr + (PredictWidth * 2).U >= f3_ftq_req_nextStartAddr , "More tha 24 Bytes fetch is not allowed!")
   }
 
   /*** MMIO State Machine***/
@@ -591,7 +591,8 @@ class NewIFU(implicit p: Parameters) extends XSModule
     !f3_pd(idx).isRVC && checkerOutStage1.fixedRange(idx) && f3_instr_valid(idx) && !checkerOutStage1.fixedTaken(idx) && ! f3_req_is_mmio
   }
 
-  val f3_last_validIdx             = ~ParallelPriorityEncoder(checkerOutStage1.fixedRange.reverse)
+  val f3_last_validIdx             = ~ParallelPriorityEncoder((Cat(Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt - PredictWidth, 0.U(1.W)), checkerOutStage1.fixedRange.asUInt).asBools).reverse)
+
   val f3_last_validIdxOH     = UIntToOH(f3_last_validIdx.asUInt)
 
   val f3_hasLastHalf         = hasLastHalf((PredictWidth - 1).U)
@@ -612,7 +613,7 @@ class NewIFU(implicit p: Parameters) extends XSModule
     f3_lastHalf.middlePC := f3_ftq_req.nextStartAddr
   }
 
-  f3_instr_valid := Mux(f3_lastHalf.valid,f3_hasHalfValid ,VecInit(f3_pd.map(inst => inst.valid)))
+  f3_instr_valid := Mux(f3_lastHalf.valid, f3_hasHalfValid, VecInit(f3_pd.map(inst => inst.valid)))
 
   /*** frontend Trigger  ***/
   frontendTrigger.io.pds  := f3_pd
