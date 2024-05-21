@@ -486,6 +486,13 @@ class TageTable
   XSDebug("Table usage:------------------------\n")
   XSDebug("%d out of %d rows are valid\n", PopCount(valids), nRows.U)
 
+  // update entry
+  for (a <- 0 until nBanks) {
+    when(updteWayMask(a) && updtBank1h(a)) {
+      printf("table-idx: %d; bank-idx: %d; se-idx: %d\n", tableIdx.asUInt, a.asUInt, updtBankIdx)
+    }
+  }
+
 }
 
 abstract class BaseTage(implicit p: Parameters) extends BasePredictor with TageParams with BPUUtils {
