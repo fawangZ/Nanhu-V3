@@ -35,7 +35,7 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle with HasICache
   val ftqIdx          = new FtqPtr
   val ftqOffset       = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
 
-  def crossCacheline =  startAddr(blockOffBits - 1) === 1.U
+  def crossCacheline =  startAddr(blockOffBits-1, blockOffBits-3) >= 5.U(3.W)
 
   def fromFtqPcBundle(b: FtqPCEntry) = {
     this.startAddr := b.startAddr
@@ -62,7 +62,7 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle with HasICache
 class FtqICacheInfo(implicit p: Parameters)extends XSBundle with HasICacheParameters{
   val startAddr           = UInt(VAddrBits.W)
   val nextlineStart       = UInt(VAddrBits.W)
-  def crossCacheline =  startAddr(blockOffBits - 1) === 1.U
+  def crossCacheline =  startAddr(blockOffBits-1, blockOffBits-3) >= 5.U(3.W)
   def fromFtqPcBundle(b: FtqPCEntry) = {
     this.startAddr := b.startAddr
     this.nextlineStart := b.nextLineAddr
@@ -442,7 +442,7 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
     val cfiIndex = Wire(ValidUndirectioned(UInt(log2Ceil(PredictWidth).W)))
     cfiIndex.valid := realSlotTaken
     // when no takens, set cfiIndex to PredictWidth-1
-    cfiIndex.bits := offsets | Fill(log2Ceil(PredictWidth), !realSlotTaken)
+    cfiIndex.bits := Mux(realSlotTaken, offsets, (PredictWidth - 1).U)
     cfiIndex
   }
 

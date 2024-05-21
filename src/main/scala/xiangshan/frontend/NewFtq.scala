@@ -237,8 +237,10 @@ class FTBEntryGen(implicit p: Parameters) extends XSModule with HasBPUParameter 
   }
 
   val jmpPft = getLower(io.start_addr) +& pd.jmpOffset +& Mux(pd.rvcMask, 1.U, 2.U)
-  init_entry.pftAddr := Mux(entry_has_jmp && !last_jmp_rvi, jmpPft, getLower(io.start_addr))
-  init_entry.carry   := Mux(entry_has_jmp && !last_jmp_rvi, jmpPft(carryPos-instOffsetBits), true.B)
+  val noJmpPft = getLower(io.start_addr) +& (PredictWidth).U
+  
+  init_entry.pftAddr := Mux(entry_has_jmp && !last_jmp_rvi, jmpPft, noJmpPft)
+  init_entry.carry   := Mux(entry_has_jmp && !last_jmp_rvi, jmpPft(carryPos-1), noJmpPft(carryPos-1))
   init_entry.isJalr := new_jmp_is_jalr
   init_entry.isCall := new_jmp_is_call
   init_entry.isRet  := new_jmp_is_ret
