@@ -28,7 +28,7 @@ import scala.math.min
 import scala.{Tuple2 => &}
 
 trait HasBPUConst extends HasXSParameter {
-  val MaxMetaLength = if (!env.FPGAPlatform) 512 else 139 // TODO: Reduce meta length
+  val MaxMetaLength = if (!env.FPGAPlatform) 512 else 150 // TODO: Reduce meta length
 
   val useBPD = true
   val numBrSlot = numBr-1
