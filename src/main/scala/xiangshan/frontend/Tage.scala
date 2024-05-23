@@ -205,12 +205,12 @@ class TageBTable(parentName:String = "Unknown")(implicit p: Parameters) extends 
   val newCtrs = Wire(Vec(numBr, UInt(2.W)))
 
   val wrbypass = Module(new WrBypass(UInt(2.W), bypassEntries, log2Up(BtSize), numWays = numBr))
-  wrbypass.io.wen        := io.updateMask
+  wrbypass.io.wen       := io.updateMask
   wrbypass.io.writeIdx  := updtIdx
   wrbypass.io.writeWayMask.map(_ := io.updateMask)
   wrbypass.io.writeData := newCtrs
   val oldCtrs = Mux(wrbypass.io.hit && wrbypass.io.hitData(0).valid, wrbypass.io.hitData(0).bits,
-                                                                      io.updateCnt)
+                                                                     io.updateCnt)
   newCtrs(0) := satUpdate(oldCtrs, 2, io.updateTakens)
 
   bt.io.w.apply(
@@ -536,11 +536,23 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   val s1ProIdxVec    = VecInit((0 until TageNTables).map(i => i.U))
   val s1ProvideIdx   = ParallelPriorityMux(s1RespValidVec.reverse, s1ProIdxVec.reverse)
   val s1Resp         = ParallelPriorityMux(s1RespValidVec.reverse, s1RespBitsVec.reverse)
+  // altpred
+  val s1ProviderOH   = UIntToOH(s1ProvideIdx, TageNTables).asBools
+  val s1AltValidVec  = s1RespValidVec.zip(s1ProviderOH).map{case(valid, mask) => valid & ~mask}
+  // s1AltValidVec(s1ProvideIdx) := false.B
+  val s1TaggedAlt  = s1AltValidVec.reduce(_||_)
+  val s1AltIdx     = ParallelPriorityMux(s1AltValidVec.reverse, s1ProIdxVec.reverse)
+  val s1AltResp    = ParallelPriorityMux(s1AltValidVec.reverse, s1RespBitsVec.reverse)
+  
   val predAltCtrIdx  = useAltIdx(s1_pc_dup(1))
   val predAltCtr     = Mux1H( UIntToOH(predAltCtrIdx, altCtrsNum), altCounters )
   val isUseAltCtr    = (predAltCtr(alterCtrBits - 1) && s1Resp.unconf) || !s1Provide
   val s1BaseCtr      = bt.io.cnt
-  val s1PredTaken    = Mux(isUseAltCtr, s1BaseCtr(1), s1Resp.ctr(TageCtrBits - 1))
+  // altpred taken
+  val s1AltTaken   = Mux(s1TaggedAlt, s1AltResp.ctr(TageCtrBits - 1), s1BaseCtr(1))
+  // final taken
+  // val s1PredTaken    = Mux(isUseAltCtr, s1BaseCtr(1), s1Resp.ctr(TageCtrBits - 1))
+  val s1PredTaken    = Mux(isUseAltCtr, s1AltTaken, s1Resp.ctr(TageCtrBits - 1))
   val s2PredTaken    = RegEnable(s1PredTaken, false.B, io.s1_fire(1))
   val s2PredTakenDup = dup(s2PredTaken)
   val s3PredTaken    = RegEnable(s2PredTaken, false.B, io.s2_fire(1))
