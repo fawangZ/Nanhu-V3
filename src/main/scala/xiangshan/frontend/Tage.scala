@@ -36,6 +36,7 @@ trait TageParams extends HasBPUConst with HasXSParameter {
   val TageNTables = TageTableInfos.size
   val TageCtrBits = 3
   val TickWidth = 7
+  val associating = 1
 
   val USE_ALT_ON_NA_WIDTH = 4
   val NUM_USE_ALT_ON_NA = 128
@@ -104,7 +105,7 @@ class TageReq(implicit p: Parameters) extends TageBundle {
 
 class TageRespMeta(implicit p: Parameters) extends TageBundle with TageParams {
   val ctr = UInt(TageCtrBits.W)
-  val u = Bool()
+  val u   = Bool()
 }
 
 class TageResp(implicit p: Parameters) extends TageRespMeta {
@@ -281,39 +282,38 @@ class TageTable
       p" ghist: ${Binary(idx_history)}, fh: ${Binary(idx_fh.foldedHist)}\n")
   }
  
-  // val associating = 4
-  // val associSetNum = nRowsPerBr / associating
-  // val associSetNum = bankSize / associating
-  // val us = Module(new SRAMTemplate(Bool(),
-  //   set=associSetNum, way=associating,
-  //   shouldReset=true, extraReset=true, holdRead=true, singlePort=true,
-  //   hasMbist = coreParams.hasMbist,
-  //   hasShareBus = coreParams.hasShareBus,
-  //   parentName = parentName + "us_"
-  // ))
-  val us = Module(new FoldedSRAMTemplate(Bool(), set=nRowsPerBr, width=uFoldedWidth, way=numBr,
+  val associSetNum = nRowsPerBr / associating
+  val associSetNumPerBank = bankSize  / associating
+  val us = Module(new SRAMTemplate(Bool(),
+    set=associSetNum, way=associating,
     shouldReset=true, extraReset=true, holdRead=true, singlePort=true,
     hasMbist = coreParams.hasMbist,
     hasShareBus = coreParams.hasShareBus,
     parentName = parentName + "us_"
   ))
+  // val us = Module(new FoldedSRAMTemplate(Bool(), set=nRowsPerBr, width=uFoldedWidth, way=numBr,
+  //   shouldReset=true, extraReset=true, holdRead=true, singlePort=true,
+  //   hasMbist = coreParams.hasMbist,
+  //   hasShareBus = coreParams.hasShareBus,
+  //   parentName = parentName + "us_"
+  // ))
   us.extra_reset.get := io.update.reset_u
 
-  // val tableBanks = Seq.tabulate(nBanks)(idx =>
-  //   Module(new SRAMTemplate(new TageEntry,
-  //     set=associSetNum, way=associating,
-  //     shouldReset=true, holdRead=true, singlePort=true,
-  //     hasMbist = coreParams.hasMbist,
-  //     hasShareBus = coreParams.hasShareBus,
-  //     parentName = parentName + s"table${idx}_"
-  //   )))
-   val table_banks = Seq.tabulate(nBanks)(idx =>
-    Module(new FoldedSRAMTemplate(new TageEntry, set=bankSize, width=bankFoldWidth, way=numBr,
+  val table_banks = Seq.tabulate(nBanks)(idx =>
+    Module(new SRAMTemplate(new TageEntry,
+      set=associSetNumPerBank, way=associating,
       shouldReset=true, holdRead=true, singlePort=true,
       hasMbist = coreParams.hasMbist,
       hasShareBus = coreParams.hasShareBus,
       parentName = parentName + s"table${idx}_"
     )))
+  //  val table_banks = Seq.tabulate(nBanks)(idx =>
+  //   Module(new FoldedSRAMTemplate(new TageEntry, set=bankSize, width=bankFoldWidth, way=numBr,
+  //     shouldReset=true, holdRead=true, singlePort=true,
+  //     hasMbist = coreParams.hasMbist,
+  //     hasShareBus = coreParams.hasShareBus,
+  //     parentName = parentName + s"table${idx}_"
+  //   )))
 
   val mbistTablePipeline = if(coreParams.hasMbist && coreParams.hasShareBus) {
     MBISTPipeline.PlaceMbistPipeline(1, s"${parentName}_mbistTablePipe")
@@ -321,7 +321,7 @@ class TageTable
     None
   }
 
-  // val replacer = ReplacementPolicy.fromString(Some("setplru"), 4, associSetNum)
+  // val replacer = ReplacementPolicy.fromString(Some("setplru"), associating, associSetNumPerBank)
 
   // read
   val reqUnhashedIdx       = getUnhashedIdx(io.req.bits.pc)
@@ -352,12 +352,13 @@ class TageTable
   val setHitsVec   = Mux1H(s1Bank1h, hits)
   val isS1Hit      = setHitsVec.reduce(_||_)
   val s1HitWayIdx  = PriorityEncoder(setHitsVec)
+  val s1HitWayData = Mux1H(setHitsVec, setRespVec)
 
   io.resp.valid       := isS1Hit
-  io.resp.bits.ctr    := setRespVec(0).ctr
-  io.resp.bits.u      := us.io.r.resp.data(0)
-  io.resp.bits.unconf := setUnconfVec(0)
-  io.resp.bits.wayIdx := 0.U
+  io.resp.bits.ctr    := setRespVec(0).ctr //s1HitWayData.ctr // 
+  io.resp.bits.u      := us.io.r.resp.data(0) //Mux1H(setHitsVec, us.io.r.resp.data) // 
+  io.resp.bits.unconf := setUnconfVec(0) // Mux1H(setHitsVec, setUnconfVec) //
+  io.resp.bits.wayIdx := 0.U //s1HitWayIdx //0.U
 
   // if (EnableGHistDiff) {
   //   val update_idx_history = compute_folded_ghist(io.update.ghist, log2Ceil(nRowsPerBr))
@@ -376,13 +377,15 @@ class TageTable
   updateFoldedHist.getHistWithInfo(altTagFhInfo).foldedHist :=
     compute_folded_ghist(io.update.ghist, tagLen - 1)
 
-  val updtBanksWdata     = Wire(Vec(nBanks,  new TageEntry))
+  val updtBanksWdata     = Wire(Vec(nBanks, new TageEntry))
   val updtUnhashedIdx    = getUnhashedIdx(io.update.pc)
   val (updtIdx, updtTag) = getHashedIdxTag(updtUnhashedIdx, updateFoldedHist)
   val updtBank1h         = getBankMask(updtIdx)
   val updtBankIdx        = getBankIdx(updtIdx)
-  val writeWayIdx  = 0.U //Mux(io.update.alloc(0), replacer.way(updtIdx), io.update.wayIdx)
+
+  // val writeWayIdx  = Mux(io.update.alloc(0), replacer.way(updtIdx), io.update.wayIdx)
   // val writeWayMask = UIntToOH(writeWayIdx, associating)
+
   // val touchSetIdx  = Seq.fill(1)(Wire(UInt(log2Ceil(associSetNum).W)))
   // val touchWayIdx  = Seq.fill(1)(Wire(Valid(UInt(2.W))))
   // touchSetIdx(0)       := Mux(io.update.mask(0), updtIdx, s1Idx)
@@ -393,7 +396,8 @@ class TageTable
   val notSilentUpdate = Wire(Vec(nBanks, Bool()))
   val updteWayMask = VecInit((0 until nBanks).map(a => io.update.mask && notSilentUpdate(a)))
   val wrBypasses = Seq.fill(nBanks)(
-    Module(new WrBypass(UInt(TageCtrBits.W), perBankWrbypassEntries, 1, tagWidth=tagLen)))
+    Module(new WrBypass(UInt(TageCtrBits.W), perBankWrbypassEntries,
+      log2Ceil(nRowsPerBr), /*log2Up(nBanks), */ 1, tagWidth=tagLen)))
 
   for(a <- 0 until nBanks) {
     val wrBypassCtr       = wrBypasses(a).io.hitData(0).bits
@@ -407,18 +411,19 @@ class TageTable
       !silentUpdate(wrBypassCtr,          io.update.takens),
       !silentUpdate(io.update.oldCtrs, io.update.takens)) || io.update.alloc
     wrBypasses(a).io.wen       := io.update.mask && updtBank1h(a)
-    wrBypasses(a).io.writeIdx := getBankIdx(updtIdx)
+    wrBypasses(a).io.writeIdx  := updtIdx //getBankIdx(updtIdx)
     wrBypasses(a).io.writeTag.map(_ := updtTag)
     wrBypasses(a).io.writeData(0) := updtBanksWdata(a).ctr
   }
+
 
   // write
   for (b <- 0 until nBanks) {
     table_banks(b).io.w.apply(
       valid   = updteWayMask(b) && updtBank1h(b),
-      data    = updtBanksWdata(b),
+      data    = updtBanksWdata(b), //VecInit(Seq.fill(associating)(updtBanksWdata(b))), //
       setIdx  = updtBankIdx,
-      waymask = 1.U
+      waymask = 1.U //writeWayMask // 
     )
   }
   us.io.w.apply(io.update.uMask, io.update.us, updtIdx, 1.U)
@@ -485,6 +490,12 @@ class TageTable
   when (io.update.mask) { valids(updtIdx) := true.B }
   XSDebug("Table usage:------------------------\n")
   XSDebug("%d out of %d rows are valid\n", PopCount(valids), nRows.U)
+
+  // update entry
+  when(updteWayMask.reduce(_||_) && updtBank1h.reduce(_||_)) {
+    printf("table-idx: %d\n", tableIdx.asUInt)
+  }
+
 
 }
 
@@ -632,14 +643,14 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
   // allocate
   val isTageAllocate = updateBrJmpValid && updateMispred &&
                        !(updateProvide && updateTagePredCorrect && updateAltUsed)
-  val allocRandomMask = LFSR64()(TageNTables - 1, 0)
+  // val allocRandomMask = LFSR64()(TageNTables - 1, 0)
   val longerHistoryTableMask = ~(LowerMask(UIntToOH(updateProvideIdx), TageNTables) &
                                  Fill(TageNTables, updateProvide.asUInt))
   val canAllocate = updateMeta.allocates.orR
   val canAllocMask = updateMeta.allocates & longerHistoryTableMask
-  val allocTableMask = canAllocMask & allocRandomMask
-  val allocateIdx = Mux(canAllocMask(PriorityEncoder(allocTableMask)),
-                    PriorityEncoder(allocTableMask), PriorityEncoder(canAllocMask))
+  // val allocTableMask = canAllocMask & allocRandomMask
+  val allocateIdx = PriorityEncoder(canAllocMask)//Mux(canAllocMask(PriorityEncoder(allocTableMask)),
+                    // PriorityEncoder(allocTableMask), PriorityEncoder(canAllocMask))
   val updateAllocMaskIn = WireDefault(VecInit(Seq.fill(TageNTables)(false.B)))
   // tick
   val tickCnt = RegInit(0.U(TickWidth.W))
