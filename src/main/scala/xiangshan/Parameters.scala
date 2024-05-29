@@ -126,7 +126,7 @@ case class XSCoreParameters
 
       (preds, ras.io.out)
     }),
-  IBufSize: Int = 48,
+  IBufSize: Int = 32,
   IBufNBank: Int = 4,
   DecodeWidth: Int = 4,
   RenameWidth: Int = 4,
