@@ -33,7 +33,7 @@ trait FTBParams extends HasXSParameter with HasBPUConst {
   val numEntries = FtbSize
   val numWays    = FtbWays
   val numSets    = numEntries/numWays // 512
-  val tagSize    = 20
+  val tagSize    = 15
 
   val TAR_STAT_SZ = 2
   def TAR_FIT = 0.U(TAR_STAT_SZ.W)
@@ -58,7 +58,6 @@ class FTBEntry_FtqMem(implicit p: Parameters) extends XSBundle with FTBParams wi
 
   def isJal: Bool = !isJalr
 
-  //def brValid: Bool  = this.valid && this.sharing
   def jmpValid: Bool = this.valid && !this.sharing
 
   def noEmptySlotForNewBr: Bool = this.valid
@@ -170,13 +169,26 @@ object FTBMeta {
   }
 }
 
-class FTB(parentName:String = "Unknown")(implicit p: Parameters) extends BasePredictor with FTBParams with BPUUtils
-  with HasCircularQueuePtrHelper with HasPerfEvents {
+class FTB(parentName:String = "Unknown")(implicit p: Parameters)
+extends BasePredictor with FTBParams with BPUUtils
+with HasCircularQueuePtrHelper with HasPerfEvents {
+
   override val meta_size = WireInit(0.U.asTypeOf(new FTBMeta)).getWidth
+
+  def getFTBtag(pc: UInt): UInt = {
+    val highBits1 = pc(38, 32)
+    val highBits2 = pc(31, 25)
+    val highBits3 = pc(24, 16)
+    val lowerBits = pc(17, 10)
+    val foldedBits = highBits1 ^ highBits2 ^ highBits3
+    val tag = Cat(foldedBits, lowerBits)
+    tag
+  }
 
   val ftbAddr = new TableAddr(log2Up(numSets), 1)
 
-  class FTBBank(val numSets: Int, val nWays: Int) extends XSModule with BPUUtils with HasPerfLogging {
+  class FTBBank(val numSets: Int, val nWays: Int)
+  extends XSModule with BPUUtils with HasPerfLogging {
     val io = IO(new Bundle {
       val s1_fire = Input(Bool())
 
@@ -199,7 +211,8 @@ class FTB(parentName:String = "Unknown")(implicit p: Parameters) extends BasePre
     })
 
     // Extract holdRead logic to fix bug that update read override predict read result
-    private val ftb = Module(new SRAMTemplate(new FTBEntryWithTag, set = numSets, way = numWays, shouldReset = true, holdRead = false, singlePort = true,
+    private val ftb = Module(new SRAMTemplate(new FTBEntryWithTag, set = numSets, way = numWays,
+      shouldReset = true, holdRead = false, singlePort = true,
       hasMbist = coreParams.hasMbist,
       hasShareBus = coreParams.hasShareBus,
       parentName = parentName
@@ -211,24 +224,27 @@ class FTB(parentName:String = "Unknown")(implicit p: Parameters) extends BasePre
     private val readTags = predRdata.map(_.tag)
 
     ftb.io.r.req.valid := io.reqPC.valid || io.u_reqPC.valid // io.s0_fire
-    ftb.io.r.req.bits.setIdx := Mux(io.u_reqPC.valid, ftbAddr.getIdx(io.u_reqPC.bits), ftbAddr.getIdx(io.reqPC.bits)) // s0_idx
+    ftb.io.r.req.bits.setIdx := Mux(io.u_reqPC.valid, ftbAddr.getIdx(io.u_reqPC.bits),
+                                                      ftbAddr.getIdx(io.reqPC.bits)) // s0_idx
 
     assert(!(io.reqPC.valid && io.u_reqPC.valid))
 
-    io.reqPC.ready := ftb.io.r.req.ready
+    io.reqPC.ready   := ftb.io.r.req.ready
     io.u_reqPC.ready := ftb.io.r.req.ready
 
-    val reqTag = RegEnable(ftbAddr.getTag(io.reqPC.bits)(tagSize-1, 0), io.reqPC.valid)
+    val reqTag = RegEnable(getFTBtag(io.reqPC.bits)(tagSize-1, 0), io.reqPC.valid)
     val reqIdx = RegEnable(ftbAddr.getIdx(io.reqPC.bits), io.reqPC.valid)
 
-    val u_reqTag = RegEnable(ftbAddr.getTag(io.u_reqPC.bits)(tagSize-1, 0), io.u_reqPC.valid)
+    val u_reqTag = RegEnable(getFTBtag(io.u_reqPC.bits)(tagSize-1, 0), io.u_reqPC.valid)
 
-    val totalHits: Vec[Bool] = VecInit((0 until numWays).map(b => readTags(b) === reqTag && readEntries(b).valid && io.s1_fire))
+    val totalHits: Vec[Bool] =
+      VecInit((0 until numWays).map(b => readTags(b) === reqTag && readEntries(b).valid && io.s1_fire))
     val hit: Bool = totalHits.reduce(_||_)
     val hitWay: UInt = OHToUInt(totalHits)
 
     val u_totalHits = VecInit((0 until numWays).map(b =>
-        ftb.io.r.resp.data(b).tag === u_reqTag && ftb.io.r.resp.data(b).entry.valid && RegNext(io.updateAccess)))
+      ftb.io.r.resp.data(b).tag === u_reqTag &&
+      ftb.io.r.resp.data(b).entry.valid && RegNext(io.updateAccess)))
     val u_hit = u_totalHits.reduce(_||_)
     val u_hitWay = OHToUInt(u_totalHits)
 
@@ -277,7 +293,8 @@ class FTB(parentName:String = "Unknown")(implicit p: Parameters) extends BasePre
 
     for (i <- 0 until numWays) {
       XSPerfAccumulate(f"ftb_replace_way$i", u_valid && io.updateWriteAlloc && u_way === i.U)
-      XSPerfAccumulate(f"ftb_replace_way${i}_has_empty", u_valid && io.updateWriteAlloc && !ftbReadEntries.map(_.valid).reduce(_&&_) && u_way === i.U)
+      XSPerfAccumulate(f"ftb_replace_way${i}_has_empty", u_valid && io.updateWriteAlloc &&
+        !ftbReadEntries.map(_.valid).reduce(_&&_) && u_way === i.U)
       XSPerfAccumulate(f"ftb_hit_way$i", hit && !io.updateAccess && hitWay === i.U)
     }
 
@@ -344,7 +361,9 @@ class FTB(parentName:String = "Unknown")(implicit p: Parameters) extends BasePre
 
   val s3_fauftbHitFtbMiss = RegEnable(!s2_ftbHitDup(dupForFtb) && s2_uftbHitDup(dupForFtb), io.s2_fire(dupForFtb))
   io.out.lastStageFtbEntry := Mux(s3_fauftbHitFtbMiss, io.in.bits.resp_in(0).lastStageFtbEntry, s3_ftbEntryDup(dupForFtb))
-  io.out.lastStageMeta := RegEnable(RegEnable(FTBMeta(writeWay.asUInt, s1_ftbHit, s1_uftbHitDup(dupForFtb), GTimer()).asUInt, io.s1_fire(dupForFtb)), io.s2_fire(dupForFtb))
+  io.out.lastStageMeta := RegEnable(RegEnable(
+    FTBMeta(writeWay.asUInt, s1_ftbHit, s1_uftbHitDup(dupForFtb), GTimer()).asUInt,
+    io.s1_fire(dupForFtb)), io.s2_fire(dupForFtb))
 
   // always taken logic
   for (out_fp & in_fp & s2_hit & s2_ftb_entry <-
@@ -379,7 +398,7 @@ class FTB(parentName:String = "Unknown")(implicit p: Parameters) extends BasePre
 
   val ftbWrite = Wire(new FTBEntryWithTag)
   ftbWrite.entry := Mux(updateNow, update.ftbEntry, delay2Entry)
-  ftbWrite.tag   := ftbAddr.getTag(Mux(updateNow, update.pc, delay2PC))(tagSize-1, 0)
+  ftbWrite.tag   := getFTBtag(Mux(updateNow, update.pc, delay2PC))(tagSize-1, 0)
 
   val writeValid = updateNow || DelayN(u_valid && !u_meta.hit, 2)
 
