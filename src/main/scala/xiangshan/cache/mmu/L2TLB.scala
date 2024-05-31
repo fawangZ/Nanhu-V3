@@ -106,7 +106,7 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
     val vpn = UInt(vpnLen.W)
     val source = UInt(bSourceWidth.W)
   }, if (l2tlbParams.enablePrefetch) 3 else 2))
-  val outArb = (0 until PtwWidth).map(i => Module(new Arbiter(new PtwResp, 3)).io)
+  val mergeArb = (0 until PtwWidth).map(i => Module(new Arbiter(new PtwMergeResp, 3)).io)
   val outArbCachePort = 0
   val outArbFsmPort = 1
   val outArbMqPort = 2
@@ -273,6 +273,14 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
     // llptw could not use refill_data_tmp, because enq bypass's result works at next cycle
   ))
 
+  // save eight ptes for each id when sector tlb
+  // (miss queue may can't resp to tlb with low latency, it should have highest priority, but diffcult to design cache)
+  val resp_pte_sector = VecInit((0 until MemReqWidth).map(i =>
+    if (i == l2tlbParams.llptwsize) {RegEnable(refill_data_tmp, mem_resp_done && !mem_resp_from_mq) }
+    else { DataHoldBypass(refill_data, llptw_mem.buffer_it(i)) }
+    // llptw could not use refill_data_tmp, because enq bypass's result works at next cycle
+  ))
+
   // mem -> miss queue
   llptw_mem.resp.valid := mem_resp_done && mem_resp_from_mq
   llptw_mem.resp.bits.id := DataHoldBypass(mem.d.bits.source, mem.d.valid)
@@ -314,19 +322,21 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
 
   llptw_out.ready := outReady(llptw_out.bits.req_info.source, outArbMqPort)
   for (i <- 0 until PtwWidth) {
-    outArb(i).in(outArbCachePort).valid := cache.io.resp.valid && cache.io.resp.bits.hit && cache.io.resp.bits.req_info.source===i.U
-    outArb(i).in(outArbCachePort).bits.entry := cache.io.resp.bits.toTlb
-    outArb(i).in(outArbCachePort).bits.pf := !cache.io.resp.bits.toTlb.v
-    outArb(i).in(outArbCachePort).bits.af := false.B
-    outArb(i).in(outArbFsmPort).valid := ptw.io.resp.valid && ptw.io.resp.bits.source===i.U
-    outArb(i).in(outArbFsmPort).bits := ptw.io.resp.bits.resp
-    outArb(i).in(outArbMqPort).valid := llptw_out.valid && llptw_out.bits.req_info.source===i.U
-    outArb(i).in(outArbMqPort).bits := pte_to_ptwResp(resp_pte(llptw_out.bits.id), llptw_out.bits.req_info.vpn, llptw_out.bits.af, true)
+    mergeArb(i).in(outArbCachePort).valid := cache.io.resp.valid && cache.io.resp.bits.hit && cache.io.resp.bits.req_info.source===i.U
+    mergeArb(i).in(outArbCachePort).bits := cache.io.resp.bits.toTlb
+    mergeArb(i).in(outArbFsmPort).valid := ptw.io.resp.valid && ptw.io.resp.bits.source===i.U
+    mergeArb(i).in(outArbFsmPort).bits := ptw.io.resp.bits.resp
+    mergeArb(i).in(outArbMqPort).valid := llptw_out.valid && llptw_out.bits.req_info.source===i.U
+    mergeArb(i).in(outArbMqPort).bits := contiguous_pte_to_merge_ptwResp(resp_pte_sector(llptw_out.bits.id).asUInt, llptw_out.bits.req_info.vpn, llptw_out.bits.af, true)
+    mergeArb(i).out.ready := io.tlb(i).resp.ready
   }
 
   // io.tlb.map(_.resp) <> outArb.map(_.out)
-  io.tlb.map(_.resp).zip(outArb.map(_.out)).map{
-    case (resp, out) => resp <> out
+  io.tlb.map(_.resp).zip(mergeArb.map(_.out)).zipWithIndex.map{
+    case ((resp, out), i) => {
+      resp.valid := out.valid
+      resp.bits := merge_ptwResp_to_sector_ptwResp(mergeArb(i).out.bits)
+    }
   }
 
   // sfence
@@ -370,9 +380,61 @@ class PTWImp(outer: PTW)(implicit p: Parameters) extends PtwModule(outer) with H
     ptw_resp
   }
 
+    // not_super means that this is a normal page
+  // valididx(i) will be all true when super page to be convenient for l1 tlb matching
+  def contiguous_pte_to_merge_ptwResp(pte: UInt, vpn: UInt, af: Bool, af_first: Boolean, not_super: Boolean = true) : PtwMergeResp = {
+    assert(tlbContiguous == 8, "Only support tlbcontiguous = 8!")
+    val ptw_merge_resp = Wire(new PtwMergeResp())
+    for (i <- 0 until tlbContiguous) {
+      val pte_in = pte(64 * i + 63, 64 * i).asTypeOf(new PteBundle())
+      val ptw_resp = Wire(new PtwMergeEntry(tagLen = sectorVpnLen, hasPerm = true, hasLevel = true))
+      ptw_resp.ppn := pte_in.ppn(ppnLen - 1, sectorTlbWidth)
+      ptw_resp.ppn_low := pte_in.ppn(sectorTlbWidth - 1, 0)
+      ptw_resp.level.map(_ := 2.U)
+      ptw_resp.perm.map(_ := pte_in.getPerm())
+      ptw_resp.tag := vpn(vpnLen - 1, sectorTlbWidth)
+      ptw_resp.pf := (if (af_first) !af else true.B) && pte_in.isPf(2.U)
+      ptw_resp.af := (if (!af_first) pte_in.isPf(2.U) else true.B) && af
+      ptw_resp.v := !ptw_resp.pf
+      ptw_resp.prefetch := DontCare
+      ptw_resp.asid := satp.asid
+      ptw_merge_resp.entries(i) := ptw_resp
+    }
+    ptw_merge_resp.pteidx := UIntToOH(vpn(sectorTlbWidth - 1, 0)).asBools
+    ptw_merge_resp.not_super := not_super.B
+    ptw_merge_resp
+  }
+
+  def merge_ptwResp_to_sector_ptwResp(pte: PtwMergeResp) : PtwSectorResp = {
+    assert(tlbContiguous == 8, "Only support tlbcontiguous = 8!")
+    val ptw_sector_resp = Wire(new PtwSectorResp)
+    ptw_sector_resp.entry.tag := pte.entries(OHToUInt(pte.pteidx)).tag
+    ptw_sector_resp.entry.asid := pte.entries(OHToUInt(pte.pteidx)).asid
+    ptw_sector_resp.entry.ppn := pte.entries(OHToUInt(pte.pteidx)).ppn
+    ptw_sector_resp.entry.perm.map(_ := pte.entries(OHToUInt(pte.pteidx)).perm.getOrElse(0.U.asTypeOf(new PtePermBundle)))
+    ptw_sector_resp.entry.level.map(_ := pte.entries(OHToUInt(pte.pteidx)).level.getOrElse(0.U(2.W)))
+    ptw_sector_resp.entry.prefetch := pte.entries(OHToUInt(pte.pteidx)).prefetch
+    ptw_sector_resp.entry.v := pte.entries(OHToUInt(pte.pteidx)).v
+    ptw_sector_resp.af := pte.entries(OHToUInt(pte.pteidx)).af
+    ptw_sector_resp.pf := pte.entries(OHToUInt(pte.pteidx)).pf
+    ptw_sector_resp.addr_low := OHToUInt(pte.pteidx)
+    ptw_sector_resp.pteidx := pte.pteidx
+    for (i <- 0 until tlbContiguous) {
+      val ppn_equal = pte.entries(i).ppn === pte.entries(OHToUInt(pte.pteidx)).ppn
+      val perm_equal = pte.entries(i).perm.getOrElse(0.U.asTypeOf(new PtePermBundle)).asUInt === pte.entries(OHToUInt(pte.pteidx)).perm.getOrElse(0.U.asTypeOf(new PtePermBundle)).asUInt
+      val v_equal = pte.entries(i).v === pte.entries(OHToUInt(pte.pteidx)).v
+      val af_equal = pte.entries(i).af === pte.entries(OHToUInt(pte.pteidx)).af
+      val pf_equal = pte.entries(i).pf === pte.entries(OHToUInt(pte.pteidx)).pf
+      ptw_sector_resp.valididx(i) := (ppn_equal && perm_equal && v_equal && af_equal && pf_equal) || !pte.not_super
+      ptw_sector_resp.ppn_low(i) := pte.entries(i).ppn_low
+    }
+    ptw_sector_resp.valididx(OHToUInt(pte.pteidx)) := true.B
+    ptw_sector_resp
+  }
+
   def outReady(source: UInt, port: Int): Bool = {
-    MuxLookup(source, true.B)(
-      (0 until PtwWidth).map(i => i.U -> outArb(i).in(port).ready))
+    MuxLookup(source, true.B,
+      (0 until PtwWidth).map(i => i.U -> mergeArb(i).in(port).ready))
   }
 
   // debug info

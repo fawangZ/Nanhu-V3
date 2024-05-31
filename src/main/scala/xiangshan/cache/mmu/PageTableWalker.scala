@@ -44,7 +44,7 @@ class PtwFsmIO()(implicit p: Parameters) extends MMUIOBaseBundle with HasPtwCons
   }))
   val resp = DecoupledIO(new Bundle {
     val source = UInt(bSourceWidth.W)
-    val resp = new PtwResp
+    val resp = new PtwMergeResp
   })
 
   val llptw = DecoupledIO(new LLPTWInBundle())
@@ -158,7 +158,7 @@ class PtwFsm()(implicit p: Parameters) extends XSModule with HasPtwConst with Ha
   val source = RegEnable(io.req.bits.req_info.source, io.req.fire)
   io.resp.valid := state === s_check_pte && (find_pte || accessFault)
   io.resp.bits.source := source
-  io.resp.bits.resp.apply(pageFault && !accessFault, accessFault, Mux(accessFault, af_level, level), memPte, vpn, satp.asid)
+  io.resp.bits.resp.apply(pageFault && !accessFault, accessFault, Mux(accessFault, af_level, level), memPte, vpn, satp.asid, addr_low = vpn(sectorTlbWidth -1, 0), not_super = false)
 
   io.llptw.valid := state === s_check_pte && to_find_pte && !accessFault
   io.llptw.bits.req_info.source := source

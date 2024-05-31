@@ -25,76 +25,6 @@ import xs.utils.perf.HasPerfLogging
 
 import scala.math.min
 
-class BankedAsyncDataModuleTemplateWithDup[T <: Data](
-  gen: T,
-  numEntries: Int,
-  numRead: Int,
-  numDup: Int,
-  numBanks: Int
-) extends Module {
-  val io = IO(new Bundle {
-    val raddr = Vec(numRead, Input(UInt(log2Ceil(numEntries).W)))
-    val rdata = Vec(numRead, Vec(numDup, Output(gen)))
-    val wen   = Input(Bool())
-    val waddr = Input(UInt(log2Ceil(numEntries).W))
-    val wdata = Input(gen)
-  })
-  require(numBanks > 1)
-  require(numEntries > numBanks)
-
-  val numBankEntries = numEntries / numBanks
-  def bankOffset(address: UInt): UInt = {
-    address(log2Ceil(numBankEntries) - 1, 0)
-  }
-
-  def bankIndex(address: UInt): UInt = {
-    address(log2Ceil(numEntries) - 1, log2Ceil(numBankEntries))
-  }
-
-  val dataBanks = Seq.tabulate(numBanks)(i => {
-    val bankEntries = if (i < numBanks - 1) numBankEntries else (numEntries - (i * numBankEntries))
-    RegInit(VecInit(List.fill(bankEntries)(0.U.asTypeOf(gen))))
-//    Mem(bankEntries, gen)
-  })
-
-  val fanOutDupNum = numBanks
-  // delay one cycle for write, so there will be one inflight entry.
-  // The inflight entry is transparent('already writen') for outside
-  val last_wen = RegNext(io.wen, false.B)
-  val last_waddr = RegEnable(io.waddr, io.wen)
-//  val last_wdata_dup = RegEnable(io.wdata, io.wen)
-  val last_wdata_dup = VecInit(Seq.fill(fanOutDupNum)(RegEnable(io.wdata, io.wen)))  //for fanout
-
-  // async read, but regnext
-  for (i <- 0 until numRead) {
-    val data_read_dup = Reg(Vec(numDup, Vec(numBanks, gen)))
-    val bank_index_dup = Reg(Vec(numDup, UInt(numBanks.W)))
-    val w_bypassed_dup = Seq.fill(numDup)(RegNext(io.waddr === io.raddr(i) && io.wen))
-    val w_bypassed2_dup = Seq.fill(numDup)(RegNext(last_waddr === io.raddr(i) && last_wen))
-    val lastWdata_dup = Seq.fill(numDup)(RegEnable(io.wdata, io.wen))
-    val lastWdata2_dup = Seq.fill(numDup)(RegEnable(lastWdata_dup.head, last_wen))
-    for (j <- 0 until numDup) {
-      bank_index_dup(j) := UIntToOH(bankIndex(io.raddr(i)))
-      for (k <- 0 until numBanks) {
-        data_read_dup(j)(k) := dataBanks(k)(bankOffset(io.raddr(i)))
-      }
-    }
-    // next cycle
-    for (j <- 0 until numDup) {
-      io.rdata(i)(j) := Mux(w_bypassed_dup(j) || w_bypassed2_dup(j), Mux(w_bypassed2_dup(j), lastWdata2_dup(j), lastWdata_dup(j)),
-        Mux1H(bank_index_dup(j), data_read_dup(j)))
-    }
-  }
-
-  // write
-  require(numBanks == fanOutDupNum)
-  for (i <- 0 until numBanks) {
-    when (last_wen && (bankIndex(last_waddr) === i.U)) {
-      dataBanks(i)(bankOffset(last_waddr)) := last_wdata_dup(i)
-    }
-  }
-}
-
 
 class TLBFA(
   sameCycle: Boolean,
@@ -112,7 +42,7 @@ class TLBFA(
   io.r.req.map(_.ready := true.B)
 
   val v = RegInit(VecInit(Seq.fill(nWays)(false.B)))
-  val entries = Reg(Vec(nWays, new TlbEntry(normalPage, superPage)))
+  val entries = Reg(Vec(nWays, new TlbSectorEntry(normalPage, superPage)))
   val g = entries.map(_.perm.g)
 
   val isSuperPage = Wire(Vec(ports, Bool()))
@@ -150,7 +80,7 @@ class TLBFA(
     }
     io.r.resp_hit_sameCycle(i) := Cat(hitVec).orR
 
-    access.sets := get_set_idx(vpn_reg, nSets) // no use
+    access.sets := get_set_idx(vpn_reg(vpn_reg.getWidth-1, sectorTlbWidth), nSets) // no use
     access.touch_ways.valid := resp.valid && Cat(hitVecReg).orR
     access.touch_ways.bits := OHToUInt(hitVecReg)
 
@@ -166,11 +96,11 @@ class TLBFA(
 
 //  val refill_vpn_reg = RegNext(io.w.bits.data.entry.tag)
 //  val refill_wayIdx_reg = RegNext(io.w.bits.wayIdx)
-  val refill_vpn_reg = RegEnable(io.w.bits.data.entry.tag,io.w.valid)
-  val refill_wayIdx_reg = RegEnable(io.w.bits.wayIdx,io.w.valid)
+  val refill_vpn_reg = RegEnable(io.w.bits.data.entry.tag, io.w.valid)
+  val refill_wayIdx_reg = RegEnable(io.w.bits.wayIdx, io.w.valid)
   when (RegNext(io.w.valid)) {
     io.access.map { access =>
-      access.sets := get_set_idx(refill_vpn_reg, nSets)
+      access.sets := get_set_idx(refill_vpn_reg(refill_vpn_reg.getWidth - 1, sectorTlbWidth), nSets) // no use in FA
       access.touch_ways.valid := true.B
       access.touch_ways.bits := refill_wayIdx_reg
     }

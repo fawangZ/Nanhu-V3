@@ -87,9 +87,9 @@ trait HasTlbConst extends HasXSParameter {
   val pteResLen = XLEN - ppnLen - 2 - flagLen
 
   val tlbContiguous = 8
-  val sectorTlbWitdh = log2Up(tlbContiguous)
-  val sectorPpnLen = ppnLen - sectorTlbWitdh
-  val sectorVpbLeb = vpnLen - sectorTlbWitdh
+  val sectorTlbWidth = log2Up(tlbContiguous)
+  val sectorPpnLen = ppnLen - sectorTlbWidth
+  val sectorVpnLen = vpnLen - sectorTlbWidth
 
   val sramSinglePort = true
 
@@ -148,7 +148,7 @@ trait HasPtwConst extends HasTlbConst with MemoryOpConstants{
    */
   // ptwl2: 8-way group-associated
   val PtwL2SetNum = l2tlbParams.l2nSets
-  val PtwL2SectorSize = blockBits /XLEN
+  val PtwL2SectorSize = blockBits / XLEN
   val PtwL2IdxLen = log2Up(PtwL2SetNum * PtwL2SectorSize)
   val PtwL2SectorIdxLen = log2Up(PtwL2SectorSize)
   val PtwL2SetIdxLen = log2Up(PtwL2SetNum)

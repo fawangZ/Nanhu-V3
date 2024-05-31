@@ -104,10 +104,10 @@ class TLB(Width: Int, nRespDups: Int = 1, q: TLBParameters)(implicit p: Paramete
     val (hit_sameCycle, hit, ppn_, perm_) = tlbfa.r_resp_apply(i)
     // assert(!(normal_hit && super_hit && vmEnable_dup(i) && RegNext(req(i).valid, init = false.B)))
 
-    val cmdReg = if (!q.sameCycle) RegEnable(cmd(i),reqValid(i)) else cmd(i)
+    val cmdReg = if (!q.sameCycle) RegEnable(cmd(i), reqValid(i)) else cmd(i)
     val validReg = if (!q.sameCycle) RegNext(reqValid(i)) else reqValid(i)
-    val offReg = if (!q.sameCycle) RegEnable(reqAddr(i).off,reqValid(i)) else reqAddr(i).off
-    val sizeReg = if (!q.sameCycle) RegEnable(req(i).bits.size,reqValid(i)) else req(i).bits.size
+    val offReg = if (!q.sameCycle) RegEnable(reqAddr(i).off, reqValid(i)) else reqAddr(i).off
+    val sizeReg = if (!q.sameCycle) RegEnable(req(i).bits.size, reqValid(i)) else req(i).bits.size
 
 
 
@@ -353,7 +353,6 @@ object TLB {
         in(i).resp.bits := tlb.io.requestor(i).resp.bits
         tlb.io.requestor(i).resp.ready := in(i).resp.ready
       }
-      tlb.io.ptw_replenish <> DontCare // itlb only use reg, so no static pmp/pma
     }
     tlb.io.ptw
   }

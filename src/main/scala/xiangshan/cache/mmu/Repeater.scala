@@ -78,7 +78,7 @@ class PTWRepeater(Width: Int = 1)(implicit p: Parameters) extends XSModule with 
   XSDebug(io.ptw.req(0).valid || io.ptw.resp.valid, p"ptw: ${ptw}\n")
   assert(!RegNext(recv && io.ptw.resp.valid, init = false.B), "re-receive ptw.resp")
   XSError(io.ptw.req(0).valid && io.ptw.resp.valid && !flush, "ptw repeater recv resp when sending")
-  XSError(io.ptw.resp.valid && (req.vpn =/= io.ptw.resp.bits.entry.tag), "ptw repeater recv resp with wrong tag")
+  XSError(io.ptw.resp.valid && (req.vpn(req.vpn.getWidth - 1, sectorTlbWidth) =/= io.ptw.resp.bits.entry.tag), "ptw repeater recv resp with wrong tag")
   XSError(io.ptw.resp.valid && !io.ptw.resp.ready, "ptw repeater's ptw resp back, but not ready")
   TimeOutAssert(sent && !recv, timeOutThreshold, "Repeater doesn't recv resp in time")
 }
@@ -175,7 +175,7 @@ class PTWFilter(Width: Int, Size: Int)(implicit p: Parameters) extends XSModule 
 
   val ptwResp = RegEnable(io.ptw.resp.bits, io.ptw.resp.fire)
   val ptwResp_OldMatchVec = vpn.zip(v).map{ case (pi, vi) =>
-    vi && io.ptw.resp.bits.entry.hit(pi, io.csr.satp.asid, true, true)}
+    vi && io.ptw.resp.bits.hit(pi, io.csr.satp.asid, true, true)}
   val ptwResp_valid = RegNext(io.ptw.resp.fire && Cat(ptwResp_OldMatchVec).orR, init = false.B)
   val oldMatchVec_early = io.tlb.req.map(a => vpn.zip(v).map{ case (pi, vi) => vi && pi === a.bits.vpn})
   val lastReqMatchVec_early = io.tlb.req.map(a => tlb_req.map{ b => b.valid && b.bits.vpn === a.bits.vpn})
@@ -183,7 +183,7 @@ class PTWFilter(Width: Int, Size: Int)(implicit p: Parameters) extends XSModule 
 
   (0 until Width) foreach { i =>
     tlb_req(i).valid := RegNext(io.tlb.req(i).valid &&
-      !(ptwResp_valid && ptwResp.entry.hit(io.tlb.req(i).bits.vpn, 0.U, true, true)) &&
+      !(ptwResp_valid && ptwResp.hit(io.tlb.req(i).bits.vpn, 0.U, true, true)) &&
       !Cat(lastReqMatchVec_early(i)).orR,
       init = false.B)
     tlb_req(i).bits := RegEnable(io.tlb.req(i).bits, io.tlb.req(i).valid)
@@ -194,7 +194,7 @@ class PTWFilter(Width: Int, Size: Int)(implicit p: Parameters) extends XSModule 
     RegNext(newMatchVec_early(i)(j)) && tlb_req(j).valid
   ))
   val ptwResp_newMatchVec = tlb_req.map(a =>
-    ptwResp_valid && ptwResp.entry.hit(a.bits.vpn, 0.U, allType = true, true))
+    ptwResp_valid && ptwResp.hit(a.bits.vpn, 0.U, allType = true, true))
 
   val oldMatchVec2 = (0 until Width).map(i => oldMatchVec_early(i).map(RegNext(_)).map(_ & tlb_req(i).valid))
   val update_ports = v.indices.map(i => oldMatchVec2.map(j => j(i)))
@@ -230,7 +230,7 @@ class PTWFilter(Width: Int, Size: Int)(implicit p: Parameters) extends XSModule 
   val canEnqueue = counter +& enqNum <= Size.U
   // tlb req flushed by ptw resp: last ptw resp && current ptw resp
   // the flushed tlb req will fakely enq, with a false valid
-  val tlb_req_flushed = reqs.map(a => io.ptw.resp.valid && io.ptw.resp.bits.entry.hit(a.bits.vpn, 0.U, true, true))
+  val tlb_req_flushed = reqs.map(a => io.ptw.resp.valid && io.ptw.resp.bits.hit(a.bits.vpn, 0.U, true, true))
 
   io.tlb.req.map(_.ready := true.B) // NOTE: just drop un-fire reqs
   io.tlb.resp.valid := ptwResp_valid
@@ -238,7 +238,7 @@ class PTWFilter(Width: Int, Size: Int)(implicit p: Parameters) extends XSModule 
   io.tlb.resp.bits.vector := resp_vector
 
   val issue_valid = v(issPtr) && !isEmptyIss && !inflight_full
-  val issue_filtered = ptwResp_valid && ptwResp.entry.hit(io.ptw.req(0).bits.vpn, io.csr.satp.asid, allType=true, ignoreAsid=true)
+  val issue_filtered = ptwResp_valid && ptwResp.hit(io.ptw.req(0).bits.vpn, io.csr.satp.asid, allType=true, ignoreAsid=true)
   val issue_fire_fake = issue_valid && (io.ptw.req(0).ready || (issue_filtered && false.B /*timing-opt*/))
   io.ptw.req(0).valid := issue_valid && !issue_filtered
   io.ptw.req(0).bits.vpn := vpn(issPtr)
