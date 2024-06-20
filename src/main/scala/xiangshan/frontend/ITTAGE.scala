@@ -173,8 +173,7 @@ class ITTageTable
     // val valid = Bool()
     val tag = UInt(tagLen.W)
     val ctr = UInt(ITTageCtrBits.W)
-    val offset    = UInt(23.W)
-    val isBackJmp = Bool()
+    val target    = UInt(24.W)
   }
 
   val validArray = RegInit(0.U(nRows.W))
@@ -224,11 +223,7 @@ class ITTageTable
   io.resp.bits.ctr := resp_selected.ctr
   io.resp.bits.u := us.io.rdata(0)
   val s1ReqPC = RegEnable(io.req.bits.pc, io.req.fire)
-  io.resp.bits.target := Mux(resp_selected.offset === 0.U, 0.U,
-    Mux(resp_selected.isBackJmp, s1ReqPC - resp_selected.offset,
-                                 s1ReqPC + resp_selected.offset)) 
-
-
+  io.resp.bits.target := Cat(s1ReqPC(VAddrBits-1,24), resp_selected.target)
 
   // Use fetchpc to compute hash
   val updateFoldedHist = WireInit(0.U.asTypeOf(new AllFoldedHistories(foldedGHistInfos)))
@@ -273,9 +268,7 @@ class ITTageTable
   update_wdata.tag   := update_tag
   // only when ctr is null
   val updtTarget = Mux(io.update.alloc || ctr_null(old_ctr), update_target, io.update.old_target)
-  val updtIsBackJmp = (io.update.pc > updtTarget)
-  update_wdata.isBackJmp := updtIsBackJmp
-  update_wdata.offset    := Mux(updtIsBackJmp, io.update.pc - updtTarget, updtTarget - io.update.pc)
+  update_wdata.target    := updtTarget(23,0)
   
   val newValidArray = VecInit(validArray.asBools)
   when (io.update.valid) {
