@@ -173,7 +173,7 @@ class ITTageTable
     // val valid = Bool()
     val tag = UInt(tagLen.W)
     val ctr = UInt(ITTageCtrBits.W)
-    val target = UInt(VAddrBits.W)
+    val targetLowerBits = UInt(24.W)
   }
 
   val validArray = RegInit(0.U(nRows.W))
@@ -222,9 +222,8 @@ class ITTageTable
   io.resp.valid := (if (tagLen != 0) s1_req_rhit else true.B) // && s1_mask(b)
   io.resp.bits.ctr := resp_selected.ctr
   io.resp.bits.u := us.io.rdata(0)
-  io.resp.bits.target := resp_selected.target
-
-
+  val s1ReqPC = RegEnable(io.req.bits.pc, io.req.fire)
+  io.resp.bits.target := Cat(s1ReqPC(VAddrBits-1,24), resp_selected.targetLowerBits)
 
   // Use fetchpc to compute hash
   val updateFoldedHist = WireInit(0.U.asTypeOf(new AllFoldedHistories(foldedGHistInfos)))
@@ -268,7 +267,8 @@ class ITTageTable
   update_wdata.ctr   := Mux(io.update.alloc, 2.U, inc_ctr(old_ctr, io.update.correct))
   update_wdata.tag   := update_tag
   // only when ctr is null
-  update_wdata.target := Mux(io.update.alloc || ctr_null(old_ctr), update_target, io.update.old_target)
+  val updtTarget = Mux(io.update.alloc || ctr_null(old_ctr), update_target, io.update.old_target)
+  update_wdata.targetLowerBits    := updtTarget(23,0)
   
   val newValidArray = VecInit(validArray.asBools)
   when (io.update.valid) {
@@ -298,7 +298,7 @@ class ITTageTable
       p"target:${Hexadecimal(u.target)}, old_target:${Hexadecimal(u.old_target)}\n")
     XSDebug(io.update.valid,
       p"update ITTAGE Table: writing tag:${update_tag}, " +
-      p"ctr: ${update_wdata.ctr}, target:${Hexadecimal(update_wdata.target)}" +
+      p"ctr: ${update_wdata.ctr}, target:${Hexadecimal(updtTarget)}" +
       p" in idx $update_idx\n")
     XSDebug(RegNext(io.req.fire) && !s1_req_rhit, "TageTableResp: no hits!\n")
 
