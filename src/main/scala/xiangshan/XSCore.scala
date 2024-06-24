@@ -204,8 +204,11 @@ class XSCoreImp(outer: XSCoreBase) extends LazyModuleImp(outer)
 
   private val itlbRepeater1 = PTWRepeater(frontend.io.ptw, fenceio.sfence, csrioIn.tlb)
   private val itlbRepeater2 = PTWRepeater(itlbRepeater1.io.ptw, ptw.io.tlb(0), fenceio.sfence, csrioIn.tlb)
-  private val dtlbRepeater1  = PTWFilter(exuBlock.io.ptw, fenceio.sfence, csrioIn.tlb, l2tlbParams.filterSize)
+  private val dtlbRepeater1  = PTWNewFilter(exuBlock.io.ptw, fenceio.sfence, csrioIn.tlb)
   private val dtlbRepeater2  = PTWRepeaterNB(passReady = false, dtlbRepeater1.io.ptw, ptw.io.tlb(1), fenceio.sfence, csrioIn.tlb)
+
+  exuBlock.io.tlb_hint <> dtlbRepeater1.io.hint.get
+
   ptw.io.sfence := fenceio.sfence
   ptw.io.csr.tlb <> csrioIn.tlb
   ptw.io.csr.distribute_csr <> csrioIn.customCtrl.distribute_csr

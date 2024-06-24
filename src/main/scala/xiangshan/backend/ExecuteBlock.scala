@@ -45,6 +45,7 @@ import xiangshan.vector.vbackend.vissue.vrs.VectorReservationStation
 import xiangshan.vector.vbackend.vregfile.VRegfileTop
 import xs.utils.{DFTResetSignals, ModuleNode, RegNextN, ResetGen, ResetGenNode}
 import xiangshan.mem._
+import xiangshan.cache.mmu.TlbHintIO
 class ExecuteBlock(val parentName:String = "Unknown")(implicit p:Parameters) extends LazyModule with HasXSParameter with HasVectorParameters {
   val integerReservationStation: IntegerReservationStation = LazyModule(new IntegerReservationStation)
   val floatingReservationStation: FloatingReservationStation = LazyModule(new FloatingReservationStation)
@@ -105,6 +106,7 @@ class ExecuteBlockImp(outer:ExecuteBlock) extends LazyModuleImp(outer)
     val stIn = Vec(exuParameters.StuCnt, ValidIO(new ExuInput))
     val enqLsq = new LsqEnqIO
     val ptw = new BTlbPtwIO(ld_tlb_ports + exuParameters.StuCnt)
+    val tlb_hint = Flipped(new TlbHintIO)
     val rob = Flipped(new RobLsqIO) // rob to lsq
     val lsqVecDeqCnt = Output(new LsqVecDeqIO)
     val lqDeq = Output(UInt(log2Up(CommitWidth + 1).W))
@@ -220,6 +222,7 @@ class ExecuteBlockImp(outer:ExecuteBlock) extends LazyModuleImp(outer)
   vecBlk.io.vcsr := RegNextN(io.csrio.vcsr.vcsr, 2)
 
   io.memBlk_csrUpdate := memBlk.io.csrUpdate
+  memBlk.io.tlb_hint <> io.tlb_hint
   memBlk.io.csrCtrl <> intBlk.io.csrio.customCtrl
   memBlk.io.fenceToSbuffer <> intBlk.io.fenceio.sbuffer
   memBlk.io.sfence := intBlk.io.fenceio.sfence

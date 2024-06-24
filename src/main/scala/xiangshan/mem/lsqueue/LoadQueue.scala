@@ -31,6 +31,7 @@ import xiangshan.backend.execute.fu.FuConfigs
 import xiangshan.backend.issue.SelectPolicy
 import xiangshan.mem.lsqueue.LSQExceptionGen
 import xs.utils.perf.HasPerfLogging
+import xiangshan.cache.mmu.TlbHintIO
 
 class LqPtr(implicit p: Parameters) extends CircularQueuePtr[LqPtr](
   p => p(XSCoreParamsKey).LoadQueueSize
@@ -95,6 +96,7 @@ class LoadQueue(implicit p: Parameters) extends XSModule
 {
   val io = IO(new Bundle() {
     val enq = new LqEnqIO
+    val tlb_hint = Flipped(new TlbHintIO)
     val brqRedirect = Flipped(ValidIO(new Redirect))
     val loadPaddrIn = Vec(LoadPipelineWidth, Flipped(Valid(new LqPaddrWriteBundle)))
     val loadIn = Vec(LoadPipelineWidth, Flipped(Valid(new LqWriteBundle)))
@@ -119,6 +121,8 @@ class LoadQueue(implicit p: Parameters) extends XSModule
     val trigger = Vec(LoadPipelineWidth, new LqTriggerIO)
     val lqDeq = Output(UInt(log2Up(CommitWidth + 1).W))
   })
+
+  io.tlb_hint := DontCare
 
   println("LoadQueue: size:" + LoadQueueSize)
 

@@ -39,6 +39,7 @@ import xiangshan.mem.prefetch.{BasePrefecher, SMSParams, SMSPrefetcher}
 import xs.utils.mbist.MBISTPipeline
 import xs.utils.perf.HasPerfLogging
 import xs.utils.{DelayN, ParallelPriorityMux, RegNextN, ValidIODelay}
+import xiangshan.cache.mmu.TlbHintIO
 
 class Std(implicit p: Parameters) extends XSModule {
   val io = IO(new Bundle{
@@ -253,6 +254,7 @@ class MemBlockImp(outer: MemBlock) extends BasicExuBlockImp(outer)
     // misc
     val stIn = Vec(exuParameters.StuCnt, ValidIO(new ExuInput))
     val ptw = new BTlbPtwIO(ld_tlb_ports + exuParameters.StuCnt)
+    val tlb_hint = Flipped(new TlbHintIO)
     val sfence = Input(new SfenceBundle)
     val tlbCsr = Input(new TlbCsrBundle)
     val fenceToSbuffer = Flipped(new FenceToSbuffer)
@@ -354,6 +356,8 @@ class MemBlockImp(outer: MemBlock) extends BasicExuBlockImp(outer)
   // TODO: fast load wakeup
   val lsq     = Module(new LsqWrappper)
   val sbuffer = Module(new Sbuffer)
+
+  lsq.io.tlb_hint <> io.tlb_hint
 
   io.lqDeq := lsq.io.lqDeq
   // if you wants to stress test dcache store, use FakeSbuffer

@@ -25,6 +25,7 @@ import xiangshan.cache._
 import xiangshan.backend.rob.RobLsqIO
 import xiangshan.vector.HasVectorParameters
 import xs.utils.UIntToMask
+import xiangshan.cache.mmu.TlbHintIO
 
 class ExceptionAddrIO(implicit p: Parameters) extends XSBundle {
   val isStore = Input(Bool())
@@ -65,6 +66,7 @@ class LQDcacheReqResp(implicit p: Parameters) extends XSBundle {
 class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParameters with HasPerfEvents {
   val io = IO(new Bundle() {
     val hartId = Input(UInt(8.W))
+    val tlb_hint = Flipped(new TlbHintIO)
     val enq = new LsqEnqIO
     val brqRedirect = Flipped(ValidIO(new Redirect))
     val loadPaddrIn = Vec(LoadPipelineWidth, Flipped(Valid(new LqPaddrWriteBundle)))
@@ -139,6 +141,7 @@ class LsqWrappper(implicit p: Parameters) extends XSModule with HasDCacheParamet
 
 
   // load queue wiring
+  loadQueue.io.tlb_hint <> io.tlb_hint
   loadQueue.io.brqRedirect <> io.brqRedirect
   loadQueue.io.loadPaddrIn <> io.loadPaddrIn
   loadQueue.io.loadIn <> io.loadIn
