@@ -93,7 +93,7 @@ class FtqPCEntry(implicit p: Parameters) extends XSBundle with BPUUtils with Has
   def fromBranchPrediction(resp: BranchPredictionBundle) = {
     def carryPos(addr: UInt) = addr(instOffsetBits+log2Ceil(PredictWidth)+1)
     this.startAddr := resp.pc(dupForFtq)
-    this.nextLineAddr := resp.pc(dupForFtq) + (FetchWidth * 4 * 2).U // may be broken on other configs
+    this.nextLineAddr := resp.pc(dupForFtq) + (CacheLineSize / 8).U
     this.isNextMask := VecInit((0 until PredictWidth).map(i =>
       (resp.pc(dupForFtq)(log2Ceil(PredictWidth), 1) +& i.U)(log2Ceil(PredictWidth)).asBool
     ))

@@ -3,7 +3,7 @@ name: Frontend Test
 
 on:
   push:
-    branches: [ frontend, ci ]
+    branches: [ frontend, ci, test ]
   pull_request:
     branches: [ frontend ]
 

@@ -41,14 +41,7 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle with HasICache
     this.startAddr := b.startAddr
     this.nextlineStart := b.nextLineAddr
     when (b.fallThruError) {
-      val nextBlockHigherTemp = Mux(startAddr(log2Ceil(PredictWidth)+instOffsetBits), b.startAddr, b.nextLineAddr)
-      val nextBlockHigher = nextBlockHigherTemp(VAddrBits-1, log2Ceil(PredictWidth)+instOffsetBits+1)
-      this.nextStartAddr :=
-        Cat(nextBlockHigher,
-          startAddr(log2Ceil(PredictWidth)+instOffsetBits) ^ 1.U(1.W),
-          startAddr(log2Ceil(PredictWidth)+instOffsetBits-1, instOffsetBits),
-          0.U(instOffsetBits.W)
-        )
+      this.nextStartAddr := startAddr + (PredictWidth * 2).U
     }
     this
   }

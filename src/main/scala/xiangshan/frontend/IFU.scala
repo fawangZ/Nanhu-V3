@@ -279,9 +279,9 @@ class NewIFU(implicit p: Parameters) extends XSModule
   }
 
   val f2_foldpc = VecInit(f2_pc.map(i => XORFold(i(VAddrBits-1,1), MemPredPCWidth)))
-  val f2_jump_range = Fill(PredictWidth, !f2_ftq_req.ftqOffset.valid) | Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt, 1.U(1.W)) >> ~f2_ftq_req.ftqOffset.bits
-  val f2_ftr_range  = Fill(PredictWidth,  f2_ftq_req.ftqOffset.valid) | Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt, 1.U(1.W)) >> ~getBasicBlockIdx(f2_ftq_req.nextStartAddr, f2_ftq_req.startAddr)
-  val f2_instr_range = (f2_jump_range & f2_ftr_range)(PredictWidth - 1, 0)
+  val f2_jump_range = Fill(PredictWidth, !f2_ftq_req.ftqOffset.valid) | (Fill(PredictWidth, 1.U(1.W)) >> ((PredictWidth-1).U - f2_ftq_req.ftqOffset.bits)).asUInt
+  val f2_ftr_range  = Fill(PredictWidth,  f2_ftq_req.ftqOffset.valid) | (Fill(PredictWidth, 1.U(1.W)) >> ((PredictWidth-1).U - getBasicBlockIdx(f2_ftq_req.nextStartAddr, f2_ftq_req.startAddr))).asUInt
+  val f2_instr_range = f2_jump_range & f2_ftr_range
   val f2_pf_vec = VecInit((0 until PredictWidth).map(i => (!isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_except_pf(0)   ||  isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_doubleLine &&  f2_except_pf(1))))
   val f2_af_vec = VecInit((0 until PredictWidth).map(i => (!isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_except_af(0)   ||  isNextLine(f2_pc(i), f2_ftq_req.startAddr) && f2_doubleLine && f2_except_af(1))))
 
