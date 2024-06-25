@@ -39,3 +39,7 @@ jobs:
         run: |
           make emu_rtl-run RUN_BIN=linux.bin
           grep "Bp" sim/emu/linux.bin/assert.log | awk -F ':' '{print $2}'| sort
+      - name: Sjeng point
+        run: |
+          make emu_rtl-run RUN_BIN_DIR=/nfs/share/checkpoints_profiles/spec06_rv64gcb_o2_20m/take_cpt/sjeng_1738400000000_0.099123/0  RUN_BIN=_1738400000000_.gz "CLI_OPTS=-I 2000000"
+          grep "Bp" sim/emu/_1738400000000_.gz/assert.log | awk -F ':' '{print $2}'| sort

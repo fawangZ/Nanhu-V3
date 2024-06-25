@@ -180,6 +180,7 @@ EMU_RUN_OPTS = -i $(RUN_BIN_DIR)/$(RUN_BIN)
 EMU_RUN_OPTS += --diff $(ABS_WORK_DIR)/ready-to-run/riscv64-spike-so
 EMU_RUN_OPTS += --wave-path $(ABS_WORK_DIR)/sim/emu/$(RUN_BIN)/tb_top.vcd
 EMU_RUN_OPTS += --enable-fork --fork-interval=15 -s $(RANDOM)
+EMU_RUN_OPTS += $(CLI_OPTS)
 emu_rtl-run:
 	$(shell if [ ! -e $(ABS_WORK_DIR)/sim/emu/$(RUN_BIN) ];then mkdir -p $(ABS_WORK_DIR)/sim/emu/$(RUN_BIN); fi)
 	touch sim/emu/$(RUN_BIN)/sim.log
