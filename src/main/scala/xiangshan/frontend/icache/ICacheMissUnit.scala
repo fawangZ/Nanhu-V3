@@ -92,7 +92,7 @@ class ICacheMissEntry(edge: TLEdgeOut, id: Int)(implicit p: Parameters) extends 
   io.meta_write.bits := DontCare
   io.data_write.bits := DontCare
 
-  val s_idle  :: s_send_mem_aquire :: s_wait_mem_grant :: s_write_back :: s_wait_resp :: Nil = Enum(5)
+  val s_idle  :: s_send_mem_aquire :: s_wait_mem_grant :: s_write_back_wait_resp :: s_write_back :: s_wait_resp :: Nil = Enum(6)
   val state = RegInit(s_idle)
   val state_dup = Seq.fill(5)(RegInit(s_idle))
   /** control logic transformation */
@@ -168,21 +168,34 @@ class ICacheMissEntry(edge: TLEdgeOut, id: Int)(implicit p: Parameters) extends 
        //   is_dirty    := io.mem_grant.bits.echo.lift(DirtyKey).getOrElse(false.B)
           when(readBeatCnt === (refillCycles - 1).U) {
       //      assert(refill_done, "refill not done!")
-            state := s_write_back
-            state_dup.map(_ := s_write_back)
+            state := s_write_back_wait_resp
+            state_dup.map(_ := s_write_back_wait_resp)
           }
         }
       }
     }
 
+    is(s_write_back_wait_resp) {
+      when((io.meta_write.fire && io.data_write.fire || needflush) && io.resp.fire) {
+        state := s_idle
+        state_dup.map(_ := s_idle)
+      }.elsewhen(io.meta_write.fire && io.data_write.fire || needflush) {
+        state := s_wait_resp
+        state_dup.map(_ := s_wait_resp)
+      }.elsewhen(io.resp.fire) {
+        state := s_write_back
+        state_dup.map(_ := s_write_back)
+      }
+    }
+
     is(s_write_back) {
-      state := Mux(io.meta_write.fire && io.data_write.fire || needflush, s_wait_resp, s_write_back)
-      state_dup.map(_ := Mux(io.meta_write.fire && io.data_write.fire, s_wait_resp, s_write_back))
+      when(io.meta_write.fire && io.data_write.fire || needflush){
+        state := s_idle
+        state_dup.map(_ := s_idle)
+      }
     }
 
     is(s_wait_resp) {
-      io.resp.bits.data := respDataReg.asUInt
-      io.resp.bits.corrupt := req_corrupt
       when(io.resp.fire) {
         state := s_idle
         state_dup.map(_ := s_idle)
@@ -202,16 +215,16 @@ class ICacheMissEntry(edge: TLEdgeOut, id: Int)(implicit p: Parameters) extends 
   require(nSets <= 256) // icache size should not be more than 128KB
 
   //resp to ifu
-  io.resp.valid := state === s_wait_resp
+  io.resp.valid := (state === s_wait_resp) || (state === s_write_back_wait_resp)
+  io.resp.bits.data := respDataReg.asUInt
+  io.resp.bits.corrupt := req_corrupt
 
-  io.meta_write.valid := (state === s_write_back) && !needflush
+  io.meta_write.valid := ((state === s_write_back) || (state === s_write_back_wait_resp)) && !needflush
   io.meta_write.bits.generate(tag = req_tag, idx = req_idx, waymask = req_waymask, bankIdx = req_idx(0))
 
-  io.data_write.valid := (state === s_write_back) && !needflush
-  val dataWriteEn = Wire(Vec(4, Bool()))
-  dataWriteEn.zipWithIndex.map{ case(wen,i) => 
-    wen := state_dup(i) === s_write_back
-  }
+  io.data_write.valid := ((state === s_write_back) || (state === s_write_back_wait_resp)) && !needflush
+  val dataWriteEn = VecInit(state_dup.init.map(s => (s === s_write_back) || (s === s_write_back_wait_resp) && !needflush))
+
   io.data_write.bits.generate(data = respDataReg.asUInt, idx = req_idx, waymask = req_waymask, bankIdx = req_idx(0), writeEn = dataWriteEn, paddr = req.paddr)
 
   XSPerfAccumulate(
