@@ -784,7 +784,7 @@ class PtwSectorResp(implicit p: Parameters) extends PtwBundle {
   val af = Bool()
 
   def genPPN(vpn: UInt): UInt = {
-    MuxLookup(entry.level.get, 0.U, Seq(
+    MuxLookup(entry.level.get, 0.U)(Seq(
       0.U -> Cat(entry.ppn(entry.ppn.getWidth-1, vpnnLen * 2 - sectorTlbWidth), vpn(vpnnLen*2-1, 0)),
       1.U -> Cat(entry.ppn(entry.ppn.getWidth-1, vpnnLen - sectorTlbWidth), vpn(vpnnLen-1, 0)),
       2.U -> Cat(entry.ppn(entry.ppn.getWidth-1, 0), ppn_low(vpn(sectorTlbWidth - 1, 0))))
