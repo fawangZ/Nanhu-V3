@@ -114,6 +114,15 @@ class NewIFU(implicit p: Parameters) extends XSModule
   def isCrossLineReq(start: UInt, end: UInt): Bool = start(blockOffBits) ^ end(blockOffBits)
 
   def isLastInCacheline(addr: UInt): Bool = addr(blockOffBits - 1, 1) === 0.U
+  def PcCutPoint = (VAddrBits/4) - 1
+  def CatPC(low: UInt, high: UInt, high1: UInt): UInt = {
+    Mux(
+      low(PcCutPoint),
+      Cat(high1, low(PcCutPoint-1, 0)),
+      Cat(high, low(PcCutPoint-1, 0))
+    )
+  }
+  def CatPC(lowVec: Vec[UInt], high: UInt, high1: UInt): Vec[UInt] = VecInit(lowVec.map(CatPC(_, high, high1)))
 
   class TlbExept(implicit p: Parameters) extends XSBundle{
     val pageFault = Bool()
@@ -200,13 +209,11 @@ class NewIFU(implicit p: Parameters) extends XSModule
   val f1_pc_high            = f1_ftq_req.startAddr(VAddrBits-1,f1_pc_adder_cut_point)
   val f1_pc_high_plus1      = f1_pc_high + 1.U
 
-  val f1_pc_lower_result    = VecInit((0 until PredictWidth).map(i => Cat(0.U(1.W), f1_ftq_req.startAddr(f1_pc_adder_cut_point-1, 0)) + (i * 2).U)) // cat with overflow bit
-  val f1_pc                 = VecInit(f1_pc_lower_result.map{ i =>  
-    Mux(i(f1_pc_adder_cut_point), Cat(f1_pc_high_plus1,i(f1_pc_adder_cut_point-1,0)), Cat(f1_pc_high,i(f1_pc_adder_cut_point-1,0)))})
+  val f1_pc_lower_result    = VecInit((0 until PredictWidth).map(i => Cat(0.U(1.W), f1_ftq_req.startAddr(PcCutPoint-1, 0)) + (i * 2).U)) // cat with overflow bit
+  val f1_pc                 = CatPC(f1_pc_lower_result, f1_pc_high, f1_pc_high_plus1)
 
-  val f1_half_snpc_lower_result = VecInit((0 until PredictWidth).map(i => Cat(0.U(1.W), f1_ftq_req.startAddr(f1_pc_adder_cut_point-1, 0)) + ((i+2) * 2).U)) // cat with overflow bit
-  val f1_half_snpc          = VecInit(f1_half_snpc_lower_result.map{i => 
-    Mux(i(f1_pc_adder_cut_point), Cat(f1_pc_high_plus1,i(f1_pc_adder_cut_point-1,0)), Cat(f1_pc_high,i(f1_pc_adder_cut_point-1,0)))})
+  val f1_half_snpc_lower_result = VecInit((0 until PredictWidth).map(i => Cat(0.U(1.W), f1_ftq_req.startAddr(PcCutPoint-1, 0)) + ((i+2) * 2).U)) // cat with overflow bit
+  val f1_half_snpc          = CatPC(f1_half_snpc_lower_result, f1_pc_high, f1_pc_high_plus1)
   
   val f1_pc_diff          = VecInit((0 until PredictWidth).map(i => f1_ftq_req.startAddr + (i * 2).U))
   val f1_half_snpc_diff   = VecInit((0 until PredictWidth).map(i => f1_ftq_req.startAddr + ((i+2) * 2).U))
@@ -264,8 +271,10 @@ class NewIFU(implicit p: Parameters) extends XSModule
   val f2_mmio         = fromICache(0).bits.tlbExcp.mmio && !fromICache(0).bits.tlbExcp.accessFault &&
                                                            !fromICache(0).bits.tlbExcp.pageFault
 
-  val f2_pc               = RegEnable(f1_pc, f1_fire)
-  val f2_half_snpc        = RegEnable(f1_half_snpc, f1_fire)
+  val f2_pc_lower_result        = RegEnable(f1_pc_lower_result, f1_fire)
+  val f2_pc_high                = RegEnable(f1_pc_high, f1_fire)
+  val f2_pc_high_plus1          = RegEnable(f1_pc_high_plus1, f1_fire)
+  val f2_pc                     = CatPC(f2_pc_lower_result, f2_pc_high, f2_pc_high_plus1)
   val f2_cut_ptr          = RegEnable(f1_cut_ptr, f1_fire)
 
   val f2_resend_vaddr     = RegEnable(f1_ftq_req.startAddr + 2.U, f1_fire)
@@ -383,8 +392,24 @@ class NewIFU(implicit p: Parameters) extends XSModule
   val f3_jump_offset    = RegEnable(f2_jump_offset, f2_fire)
   val f3_af_vec         = RegEnable(f2_af_vec,      f2_fire)
   val f3_pf_vec         = RegEnable(f2_pf_vec ,     f2_fire)
-  val f3_pc             = RegEnable(f2_pc,          f2_fire)
-  val f3_half_snpc      = RegEnable(f2_half_snpc, f2_fire)
+
+  val f3_pc_lower_result        = RegEnable(f2_pc_lower_result, f2_fire)
+  val f3_pc_high                = RegEnable(f2_pc_high, f2_fire)
+  val f3_pc_high_plus1          = RegEnable(f2_pc_high_plus1, f2_fire)
+  val f3_pc             = CatPC(f3_pc_lower_result, f3_pc_high, f3_pc_high_plus1)
+
+  val f3_pc_last_lower_result_plus2 = RegEnable(f2_pc_lower_result(PredictWidth - 1) + 2.U, f2_fire)
+  val f3_pc_last_lower_result_plus4 = RegEnable(f2_pc_lower_result(PredictWidth - 1) + 4.U, f2_fire)
+  val f3_half_snpc      = Wire(Vec(PredictWidth,UInt(VAddrBits.W)))
+  for(i <- 0 until PredictWidth){
+    if(i == (PredictWidth - 2)){
+      f3_half_snpc(i)   := CatPC(f3_pc_last_lower_result_plus2, f3_pc_high, f3_pc_high_plus1)
+    } else if (i == (PredictWidth - 1)){
+      f3_half_snpc(i)   := CatPC(f3_pc_last_lower_result_plus4, f3_pc_high, f3_pc_high_plus1)
+    } else {
+      f3_half_snpc(i)   := f3_pc(i+2)
+    }
+  }
   val f3_instr_range    = RegEnable(f2_instr_range, f2_fire)
   val f3_foldpc         = RegEnable(f2_foldpc,      f2_fire)
   val f3_crossPageFault = RegEnable(f2_crossPageFault,      f2_fire)
@@ -437,7 +462,9 @@ class NewIFU(implicit p: Parameters) extends XSModule
   val f3_mmio_to_commit_next = RegNext(f3_mmio_to_commit)
   val f3_mmio_can_go      = f3_mmio_to_commit && !f3_mmio_to_commit_next
 
-  val fromFtqRedirectReg    = RegNext(fromFtq.redirect,init = 0.U.asTypeOf(fromFtq.redirect))
+  val fromFtqRedirectReg = Wire(fromFtq.redirect.cloneType)
+  fromFtqRedirectReg.bits := RegEnable(fromFtq.redirect.bits, 0.U.asTypeOf(fromFtq.redirect.bits), fromFtq.redirect.valid)
+  fromFtqRedirectReg.valid := RegNext(fromFtq.redirect.valid, init = false.B)
   val mmioF3Flush           = RegNext(f3_flush,init = false.B)
   val f3_ftq_flush_self     = fromFtqRedirectReg.valid && RedirectLevel.flushItself(fromFtqRedirectReg.bits.level)
   val f3_ftq_flush_by_older = fromFtqRedirectReg.valid && isBefore(fromFtqRedirectReg.bits.ftqIdx, f3_ftq_req.ftqIdx)
@@ -451,7 +478,7 @@ class NewIFU(implicit p: Parameters) extends XSModule
   when(f3_flush && !f3_req_is_mmio)                                                 {f3_valid := false.B}
   .elsewhen(mmioF3Flush && f3_req_is_mmio && !f3_need_not_flush)                    {f3_valid := false.B}
   .elsewhen(f2_fire && !f2_flush )                                                  {f3_valid := true.B }
-  .elsewhen(io.toIbuffer.fire && !f3_req_is_mmio)                                 {f3_valid := false.B}
+  .elsewhen(io.toIbuffer.fire && !f3_req_is_mmio)                                   {f3_valid := false.B}
   .elsewhen{f3_req_is_mmio && f3_mmio_req_commit}                                   {f3_valid := false.B}
 
   val f3_mmio_use_seq_pc = RegInit(false.B)
