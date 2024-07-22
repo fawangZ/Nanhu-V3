@@ -205,8 +205,8 @@ class NewIFU(implicit p: Parameters) extends XSModule
   .elsewhen(f0_fire && !f0_flush) {f1_valid  := true.B}
   .elsewhen(f1_fire)              {f1_valid  := false.B}
 
-  val f1_pc_adder_cut_point = (VAddrBits/2) - 1 // equal lower_result overflow bit
-  val f1_pc_high            = f1_ftq_req.startAddr(VAddrBits-1,f1_pc_adder_cut_point)
+  
+  val f1_pc_high            = f1_ftq_req.startAddr(VAddrBits-1, PcCutPoint)
   val f1_pc_high_plus1      = f1_pc_high + 1.U
 
   val f1_pc_lower_result    = VecInit((0 until PredictWidth).map(i => Cat(0.U(1.W), f1_ftq_req.startAddr(PcCutPoint-1, 0)) + (i * 2).U)) // cat with overflow bit
