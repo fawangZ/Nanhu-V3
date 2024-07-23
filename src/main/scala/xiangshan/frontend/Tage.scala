@@ -264,7 +264,7 @@ class TageTable
     val idx_fh = allFh.getHistWithInfo(idxFhInfo).foldedHist
     val tag_fh = allFh.getHistWithInfo(tagFhInfo).foldedHist
     val alt_tag_fh = allFh.getHistWithInfo(altTagFhInfo).foldedHist
-    val idx = (unhashed_idx ^ idx_fh)(log2Ceil(nRowsPerBr)-1, 0)
+    val idx = ((unhashed_idx >> log2Ceil(nRowsPerBr) << idx_fh.getWidth) ^ unhashed_idx ^ idx_fh)(log2Ceil(nRowsPerBr)-1, 0)
     val tag = (unhashed_idx ^ tag_fh ^ (alt_tag_fh << 1)) (tagLen - 1, 0)
     (idx, tag)
   }
