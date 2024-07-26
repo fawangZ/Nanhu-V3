@@ -36,8 +36,6 @@ class TLB(Width: Int, nRespDups: Int = 1, q: TLBParameters)(Block: Seq[Boolean] 
   val resp = io.requestor.map(_.resp)
   val ptw = io.ptw
   val pmp = io.pmp
-  val ptw_resp = RegEnable(ptw.resp.bits, ptw.resp.valid)
-  val ptw_resp_v = RegNext(ptw.resp.valid, init = false.B)
 
   val req_out = req.map(a => RegEnable(a.bits, a.fire))
   val req_out_v = (0 until Width).map(i => ValidHold(req(i).fire, resp(i).fire, io.flushPipe(i)))  //&& !req(i).bits.kill
@@ -49,12 +47,7 @@ class TLB(Width: Int, nRespDups: Int = 1, q: TLBParameters)(Block: Seq[Boolean] 
   val vmEnable_dup = Seq.fill(Width)(RegNext(vmEnable_tmp))
   val csr_dup = Seq.fill(Width)(RegNext(io.csr))
   val csr_dup_2 = RegNext(io.csr)
-
-  val sfence_valid = RegNext(io.sfence.valid)
-  val sfence_bits = RegEnable(io.sfence.bits, io.sfence.valid)
-  val sfence = Wire(new SfenceBundle)
-  sfence.valid := sfence_valid
-  sfence.bits := sfence_bits
+  val sfence = Pipe(io.sfence)
 
   val satp = csr_dup.head.satp
   val priv = csr_dup.head.priv
@@ -96,13 +89,12 @@ class TLB(Width: Int, nRespDups: Int = 1, q: TLBParameters)(Block: Seq[Boolean] 
     re.way
   }
 
-  val refill_now = ptw_resp_v
-  val refill = ptw_resp_v && !sfence.valid && !satp.changed
+  val refill = ptw.resp.valid && !sfence.valid && !satp.changed
 
   tlbfa.w_apply(
     valid = refill,
     wayIdx = refill_idx,
-    data = ptw_resp,
+    data = ptw.resp.bits,
   )
 
   tlbfa.sfence <> sfence
