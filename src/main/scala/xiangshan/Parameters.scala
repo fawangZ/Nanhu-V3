@@ -97,7 +97,7 @@ case class XSCoreParameters
         ( 512,   13,    9),
         ( 512,   16,    9),
         ( 512,   32,    9)),
-  SCNRows: Int = 512,
+  SCNRows: Int = 64,
   SCNTables: Int = 4,
   SCCtrBits: Int = 6,
   SCHistLens: Seq[Int] = Seq(0, 4, 10, 16),
