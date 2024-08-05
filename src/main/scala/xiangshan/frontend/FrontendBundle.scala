@@ -35,7 +35,8 @@ class FetchRequestBundle(implicit p: Parameters) extends XSBundle with HasICache
   val ftqIdx          = new FtqPtr
   val ftqOffset       = ValidUndirectioned(UInt(log2Ceil(PredictWidth).W))
 
-  def crossCacheline =  startAddr(blockOffBits-1, blockOffBits-3) >= 5.U(3.W)
+  // def crossCacheline =  startAddr(blockOffBits-1, blockOffBits-3) >= 5.U(3.W)
+  def crossCacheline =  startAddr(blockOffBits-1) === 1.U
 
   def fromFtqPcBundle(b: FtqPCEntry) = {
     this.startAddr := b.startAddr
@@ -63,7 +64,7 @@ class FtqICacheInfo(implicit p: Parameters)extends XSBundle with HasICacheParame
   val startAddr           = UInt(VAddrBits.W)
   val nextlineStart       = UInt(VAddrBits.W)
   val ftqIdx              = new FtqPtr
-  def crossCacheline =  startAddr(blockOffBits-1, blockOffBits-3) >= 5.U(3.W)
+  def crossCacheline =  startAddr(blockOffBits-1) === 1.U
   def fromFtqPcBundle(b: FtqPCEntry) = {
     this.startAddr := b.startAddr
     this.nextlineStart := b.nextLineAddr
@@ -390,6 +391,7 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
   val offsets = UInt(log2Ceil(PredictWidth).W)
   val fallThroughAddr = UInt(VAddrBits.W)
   val fallThroughErr = Bool()
+  val multiHit = Bool()
 
   val isJal = Bool()
   val isJalr = Bool()
@@ -424,6 +426,7 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
   }
 
   def fallThruError: Bool = hit && fallThroughErr
+  def ftbMultiHit: Bool = hit && multiHit
 
   def hitTakenOnJmp = realSlotTaken && !isBrSharing
   def hitTakenOnCall = hitTakenOnJmp && isCall
@@ -455,7 +458,8 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
     
     val startLower        = Cat(0.U(1.W),    pc(instOffsetBits+log2Ceil(PredictWidth)-1, instOffsetBits))
     val endLowerwithCarry = Cat(entry.carry, entry.pftAddr)
-    fallThroughErr := startLower >= endLowerwithCarry
+    // fallThroughErr := startLower >= endLowerwithCarry
+    fallThroughErr := startLower >= endLowerwithCarry || endLowerwithCarry > (startLower + (PredictWidth).U)
     fallThroughAddr := Mux(fallThroughErr, pc + (FetchWidth * 4).U, entry.getFallThrough(pc))
   }
 
@@ -487,6 +491,7 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle
   def brTaken        = VecInit(fullPred.map(_.brTaken))
   def shouldShiftVec = VecInit(fullPred.map(_.shouldShiftVec))
   def fallThruError  = VecInit(fullPred.map(_.fallThruError))
+  def ftbMultiHit    = VecInit(fullPred.map(_.ftbMultiHit))
 
   def taken = VecInit(cfiIndex.map(_.valid))
 
@@ -502,6 +507,10 @@ class BranchPredictionResp(implicit p: Parameters) extends XSBundle with HasBPUC
   val lastStageMeta = UInt(MaxMetaLength.W)
   val lastStageSpecInfo = new SpeculativeInfo
   val lastStageFtbEntry = new FTBEntry
+
+  val s1_uftbHit = Bool()
+  val s1_uftbHasIndirect = Bool()
+  val s1_ftbCloseReq = Bool()
 
   def selectedRespForFtq: BranchPredictionBundle ={
     val res =

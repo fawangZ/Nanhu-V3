@@ -170,13 +170,13 @@ class ITTageTable
   def inc_ctr(ctr: UInt, taken: Bool): UInt = satUpdate(ctr, ITTageCtrBits, taken)
 
   class ITTageEntry() extends ITTageBundle {
-    // val valid = Bool()
+    val valid = Bool()
     val tag = UInt(tagLen.W)
     val ctr = UInt(ITTageCtrBits.W)
     val targetLowerBits = UInt(24.W)
   }
 
-  val validArray = RegInit(0.U(nRows.W))
+  // val validArray = RegInit(0.U(nRows.W))
 
   // Why need add instOffsetBits?
   val ittageEntrySz = 1 + tagLen + ITTageCtrBits + VAddrBits
@@ -185,11 +185,13 @@ class ITTageTable
   // def getUnhashedIdx(pc: UInt) = pc >> (instOffsetBits+log2Ceil(TageBanks))
   def getUnhashedIdx(pc: UInt): UInt = (pc >> instOffsetBits).asUInt
 
+  val s0_valid = io.req.valid
   val s0_pc = io.req.bits.pc
   val s0_unhashed_idx = getUnhashedIdx(io.req.bits.pc)
 
   val (s0_idx, s0_tag) = compute_tag_and_hash(s0_unhashed_idx, io.req.bits.foldedHist)
   val (s1_idx, s1_tag) = (RegEnable(s0_idx, io.req.fire), RegEnable(s0_tag, io.req.fire))
+  val s1_valid = RegNext(s0_valid)
   val s0_bank_req_1h = get_bank_mask(s0_idx)
   val s1_bank_req_1h = RegEnable(s0_bank_req_1h, io.req.fire)
   
@@ -217,9 +219,9 @@ class ITTageTable
   val table_banks_r = table_banks.map(_.io.r.resp.data(0))
 
   val resp_selected = Mux1H(s1_bank_req_1h, table_banks_r)
-  val s1_req_rhit = validArray(s1_idx) && resp_selected.tag === s1_tag
+  val s1_req_rhit = resp_selected.valid && resp_selected.tag === s1_tag
 
-  io.resp.valid := (if (tagLen != 0) s1_req_rhit else true.B) // && s1_mask(b)
+  io.resp.valid := (if (tagLen != 0) s1_req_rhit else true.B) && s1_valid// && s1_mask(b)
   io.resp.bits.ctr := resp_selected.ctr
   io.resp.bits.u := us.io.rdata(0)
   val s1ReqPC = RegEnable(io.req.bits.pc, io.req.fire)
@@ -248,8 +250,13 @@ class ITTageTable
   }
 
   val bank_conflict = (0 until nBanks).map(b => table_banks(b).io.w.req.valid && s0_bank_req_1h(b)).reduce(_||_)
-  io.req.ready := !io.update.valid
+  // io.req.ready := !io.update.valid
   // io.req.ready := !bank_conflict
+  val powerOnResetState = RegInit(true.B)
+  when(table_banks.map(_.io.r.req.ready).reduce(_ && _)) {
+    powerOnResetState := false.B
+  }
+  io.req.ready := !powerOnResetState
   XSPerfAccumulate(f"ittage_table_bank_conflict", bank_conflict)
 
   us.io.wen := io.update.uValid
@@ -264,17 +271,13 @@ class ITTageTable
   wrbypass.io.write_data.foreach(_ := update_wdata.ctr)
 
   val old_ctr = Mux(wrbypass.io.hit, wrbypass.io.hit_data(0).bits, io.update.oldCtr)
+  update_wdata.valid := true.B
   update_wdata.ctr   := Mux(io.update.alloc, 2.U, inc_ctr(old_ctr, io.update.correct))
   update_wdata.tag   := update_tag
   // only when ctr is null
   val updtTarget = Mux(io.update.alloc || ctr_null(old_ctr), update_target, io.update.old_target)
   update_wdata.targetLowerBits    := updtTarget(23,0)
   
-  val newValidArray = VecInit(validArray.asBools)
-  when (io.update.valid) {
-    newValidArray(update_idx) := true.B
-    validArray := newValidArray.asUInt
-  }
 
   // reset all us in 32 cycles
   us.io.resetEn.foreach(_ := io.update.reset_u)
@@ -317,13 +320,15 @@ abstract class BaseITTage(implicit p: Parameters) extends BasePredictor with ITT
 class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends BaseITTage {
   override val meta_size = 0.U.asTypeOf(new ITTageMeta).getWidth
 
+  // val s1_uftbHit = io.in.bits.resp_in(0).s1_uftbHit
+  // val s1_uftbHasIndirect = io.in.bits.resp_in(0).s1_uftbHasIndirect
+  // val s1_isIndirect = s1_uftbHasIndirect
+
   val tables = ITTageTableInfos.zipWithIndex.map {
     case ((nRows, histLen, tagLen), i) =>
       // val t = if(EnableBPD) Module(new TageTable(nRows, histLen, tagLen, UBitPeriod)) else Module(new FakeTageTable)
       val t = Module(new ITTageTable(nRows, histLen, tagLen, UBitPeriod, i, parentName = parentName + s"tables${i}_"))
-      t.io.req.valid := io.s0_fire(dupForIttage)
-      t.io.req.bits.pc := s0_pc_dup(dupForIttage)
-      t.io.req.bits.foldedHist := io.in.bits.foldedHist(dupForIttage)
+   
       t
   }
   override def getFoldedHistoryInfo = Some(tables.map(_.getFoldedHistoryInfo).reduce(_++_))
@@ -332,13 +337,19 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   val useAltOnNa = RegInit((1 << (UAONA_bits-1)).U(UAONA_bits.W))
   val tickCtr = RegInit(0.U(TickWidth.W))
 
+  // uftb miss or hasIndirect
+  val s1_uftbHit = io.in.bits.resp_in(0).s1_uftbHit
+  val s1_uftbHasIndirect = io.in.bits.resp_in(0).s1_uftbHasIndirect
+  val s1_isIndirect = (!s1_uftbHit && !io.in.bits.resp_in(0).s1_ftbCloseReq) || s1_uftbHasIndirect
+
   // Keep the table responses to process in s2
   val s0_fire = io.s0_fire(dupForIttage)
   val s1_fire = io.s1_fire(dupForIttage)
   val s2_fire = io.s2_fire(dupForIttage)
 
-  val s1_resps = VecInit(tables.map(t => t.io.resp))
-  val s2_resps = RegEnable(s1_resps, s1_fire)
+  // val s1_resps = VecInit(tables.map(t => t.io.resp))
+  // val s2_resps = RegEnable(s1_resps, s1_fire)
+  val s2_resps = VecInit(tables.map(t => t.io.resp))
 
   val debug_pc_s1 = RegEnable(s0_pc_dup(dupForIttage), s0_fire)
   val debug_pc_s2 = RegEnable(debug_pc_s1, s1_fire)
@@ -403,6 +414,15 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
 
   // val updateTageMisPreds = VecInit((0 until numBr).map(i => updateMetas(i).taken =/= u.takens(i)))
   val updateMisPred = update.mispred_mask.last // the last one indicates jmp results
+
+  // Predict
+  tables.map { t => {
+      t.io.req.valid := io.s1_fire(3) && s1_isIndirect
+      t.io.req.bits.pc := s1_pc_dup(3)
+      t.io.req.bits.foldedHist := io.in.bits.s1_folded_hist(3)
+    }
+  }
+
   // access tag tables and output meta info
   class ITTageTableInfo(implicit p: Parameters) extends ITTageResp {
     val tableIdx = UInt(log2Ceil(ITTageNTables).W)
@@ -441,7 +461,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
     // #2276
     (provided && !(providerNull && altProvided), providerInfo.target), 
     (altProvided && providerNull, altProviderInfo.target),
-    (!provided|| providerNull && !altProvided, baseTarget)
+    (!provided, baseTarget)
   ))
   //s2_finalAltPred := Mux(altProvided, altProviderInfo.ctr(ITTageCtrBits-1), basePred)
   s2_provided       := provided
@@ -478,7 +498,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
   // and also uses a longer history than the provider
   val s2_allocatableSlots = VecInit(s2_resps.map(r => !r.valid && !r.bits.u)).asUInt &
     ~(LowerMask(UIntToOH(s2_provider), ITTageNTables) & Fill(ITTageNTables, s2_provided.asUInt))
-  val s2_allocLFSR   = LFSR64()(ITTageNTables - 1, 0)
+  val s2_allocLFSR   = random.LFSR(width=15)(ITTageNTables - 1, 0)
   val s2_firstEntry  = PriorityEncoder(s2_allocatableSlots)
   val s2_maskedEntry = PriorityEncoder(s2_allocatableSlots & s2_allocLFSR)
   val s2_allocEntry  = Mux(s2_allocatableSlots(s2_maskedEntry), s2_maskedEntry, s2_firstEntry)
@@ -625,7 +645,7 @@ class ITTage(parentName:String = "Unknown")(implicit p: Parameters) extends Base
     //     0.U, m.provider.valid, m.provider.bits, m.altDiffers, m.providerU, m.providerCtr, m.allocate.valid, m.allocate.bits
     //   )
     // }
-    val s2_resps = RegEnable(s1_resps, s1_fire)
+    // val s2_resps = RegEnable(s1_resps, s1_fire)
     XSDebug("req: v=%d, pc=0x%x\n", s0_fire, s0_pc_dup(dupForIttage))
     XSDebug("s1_fire:%d, resp: pc=%x\n", s1_fire, debug_pc_s1)
     // XSDebug("s2_fireOnLastCycle: resp: pc=%x, target=%x, hit=%b, taken=%b\n",

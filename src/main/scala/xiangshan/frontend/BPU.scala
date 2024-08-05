@@ -101,6 +101,7 @@ class BasePredictorInput (implicit p: Parameters) extends XSBundle with HasBPUCo
   val s0_pc = Vec(numDup, UInt(VAddrBits.W))
 
   val foldedHist = Vec(numDup, new AllFoldedHistories(foldedGHistInfos))
+  val s1_folded_hist = Vec(numDup, new AllFoldedHistories(foldedGHistInfos))
   val ghist = UInt(HistoryLength.W)
 
   val resp_in = Vec(nInputs, new BranchPredictionResp)
@@ -116,6 +117,10 @@ class BasePredictorIO (implicit p: Parameters) extends XSBundle with HasBPUConst
   val out = Output(new BasePredictorOutput)
   // val flush_out = Valid(UInt(VAddrBits.W))
 
+  val fauftb_entry_in = Input(new FTBEntry)
+  val fauftb_entry_hit_in = Input(Bool())
+  val fauftb_entry_out = Output(new FTBEntry)
+  val fauftb_entry_hit_out = Output(Bool())
   val ctrl = Input(new BPUCtrl)
 
   val s0_fire = Input(Vec(numDup, Bool()))
@@ -132,6 +137,7 @@ class BasePredictorIO (implicit p: Parameters) extends XSBundle with HasBPUConst
 
   val update = Vec(numDup, Flipped(Valid(new BranchPredictionUpdate)))
   val redirect = Flipped(Valid(new BranchPredictionRedirect))
+  val redirectFromIFU = Input(Bool())
 }
 
 abstract class BasePredictor(implicit p: Parameters) extends XSModule
@@ -142,6 +148,9 @@ abstract class BasePredictor(implicit p: Parameters) extends XSModule
   val io = IO(new BasePredictorIO())
 
   io.out := io.in.bits.resp_in(0)
+
+  io.fauftb_entry_out := io.fauftb_entry_in
+  io.fauftb_entry_hit_out := io.fauftb_entry_hit_in
 
   io.out.lastStageMeta := 0.U
 
@@ -281,7 +290,11 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   predictors.io.in.bits.s0_pc := s0_pc_dup
   predictors.io.in.bits.ghist := s0_ghist
   predictors.io.in.bits.foldedHist := s0_folded_gh_dup
+  predictors.io.in.bits.s1_folded_hist := s1_folded_gh_dup
   predictors.io.in.bits.resp_in(0) := (0.U).asTypeOf(new BranchPredictionResp)
+  predictors.io.fauftb_entry_in := (0.U).asTypeOf(new FTBEntry)
+  predictors.io.fauftb_entry_hit_in := false.B
+  predictors.io.redirectFromIFU := RegNext(io.ftq_to_bpu.redirctFromIFU, init=false.B)
   // predictors.io.in.bits.resp_in(0).s1.pc := s0_pc
   // predictors.io.in.bits.toFtq_fire := toFtq_fire
 
@@ -557,12 +570,13 @@ class Predictor(parentName:String = "Unknown")(implicit p: Parameters) extends X
   val s3_redirect_on_target_dup = resp.s3.target.zip(previous_s2_pred.target).map {case (t1, t2) => t1 =/= t2}
   val s3_redirect_on_jalr_target_dup = resp.s3.fullPred.zip(previous_s2_pred.fullPred).map {case (fp1, fp2) => fp1.hitTakenOnJalr && fp1.jalrTarget =/= fp2.jalrTarget}
   val s3_redirect_on_fall_thru_error_dup = resp.s3.fallThruError
+  val s3_redirect_on_ftb_multi_hit_dup = resp.s3.ftbMultiHit
 
-  for (s3_redirect & s3_fire & s3_redirect_on_br_taken & s3_redirect_on_target & s3_redirect_on_fall_thru_error <-
-    s3_redirect_dup zip s3_fire_dup zip s3_redirect_on_br_taken_dup zip s3_redirect_on_target_dup zip s3_redirect_on_fall_thru_error_dup) {
+  for (s3_redirect & s3_fire & s3_redirect_on_br_taken & s3_redirect_on_target & s3_redirect_on_fall_thru_error & s3_redirect_on_ftb_multi_hit <-
+    s3_redirect_dup zip s3_fire_dup zip s3_redirect_on_br_taken_dup zip s3_redirect_on_target_dup zip s3_redirect_on_fall_thru_error_dup zip s3_redirect_on_ftb_multi_hit_dup) {
 
     s3_redirect := s3_fire && (
-      s3_redirect_on_br_taken || s3_redirect_on_target || s3_redirect_on_fall_thru_error
+      s3_redirect_on_br_taken || s3_redirect_on_target || s3_redirect_on_fall_thru_error || s3_redirect_on_ftb_multi_hit
     )
   }
 

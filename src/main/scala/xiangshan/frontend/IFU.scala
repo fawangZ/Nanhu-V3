@@ -606,7 +606,8 @@ class NewIFU(implicit p: Parameters) extends XSModule
     !f3_pd(idx).isRVC && checkerOutStage1.fixedRange(idx) && f3_instr_valid(idx) && !checkerOutStage1.fixedTaken(idx) && ! f3_req_is_mmio
   }
 
-  val f3_last_validIdx             = ~ParallelPriorityEncoder((Cat(Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt - PredictWidth, 0.U(1.W)), checkerOutStage1.fixedRange.asUInt).asBools).reverse)
+  // val f3_last_validIdx             = ~ParallelPriorityEncoder((Cat(Fill(scala.math.pow(2, log2Ceil(PredictWidth)).toInt - PredictWidth, 0.U(1.W)), checkerOutStage1.fixedRange.asUInt).asBools).reverse)
+  val f3_last_validIdx             = ~ParallelPriorityEncoder((checkerOutStage1.fixedRange.asUInt.asBools).reverse)
 
   val f3_last_validIdxOH     = UIntToOH(f3_last_validIdx.asUInt)
 

@@ -46,6 +46,7 @@ class Composer(parentName:String = "Unknown")(implicit p: Parameters) extends Ba
     c.io.in.valid            := io.in.valid
     c.io.in.bits.s0_pc       := io.in.bits.s0_pc
     c.io.in.bits.foldedHist := io.in.bits.foldedHist
+    c.io.in.bits.s1_folded_hist := io.in.bits.s1_folded_hist
     c.io.in.bits.ghist       := io.in.bits.ghist
 
     c.io.s0_fire := io.s0_fire
@@ -58,6 +59,7 @@ class Composer(parentName:String = "Unknown")(implicit p: Parameters) extends Ba
 
     c.io.redirect := io.redirect
     c.io.ctrl := DelayN(io.ctrl, 1)
+    c.io.redirectFromIFU := io.redirectFromIFU
 
     if (c.meta_size > 0) {
       metas = (metas << c.meta_size) | c.io.out.lastStageMeta(c.meta_size-1,0)

@@ -140,6 +140,7 @@ class FtqToBpuIO(implicit p: Parameters) extends XSBundle {
   val redirect = Valid(new BranchPredictionRedirect)
   val update = Valid(new BranchPredictionUpdate)
   val enq_ptr = Output(new FtqPtr)
+  val redirctFromIFU = Output(Bool())
 }
 
 class FtqToPrefetchIO(implicit p: Parameters) extends XSBundle with HasCircularQueuePtrHelper {
@@ -411,7 +412,7 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
   io.bpuInfo := DontCare
 
   val backendRedirect = Wire(Valid(new Redirect))
-  val backendRedirectReg = RegNext(backendRedirect)
+  val backendRedirectAhead = Wire(Valid(new Redirect))
 
   val stage2Flush = backendRedirect.valid
   val backendFlush = stage2Flush || RegNext(stage2Flush)
@@ -421,8 +422,8 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
 
   val allowBpuIn, allowToIfu = WireInit(false.B)
   val flushToIfu = !allowToIfu
-  allowBpuIn := !ifuFlush && !backendRedirect.valid && !backendRedirectReg.valid
-  allowToIfu := !ifuFlush && !backendRedirect.valid && !backendRedirectReg.valid
+  allowBpuIn := !ifuFlush && !backendRedirect.valid //&& !backendRedirectReg.valid
+  allowToIfu := !ifuFlush && !backendRedirect.valid //&& !backendRedirectReg.valid
 
   def copyNum = 5
   val bpuPtr, pfPtr, ifuPtr, ifuWbPtr, commPtr = RegInit(FtqPtr(false.B, 0.U))
@@ -866,12 +867,11 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
    */
 
   // redirect read cfiInfo, couples to redirectGen s2
-  ftqRedirectMem.io.raddr.init.last := backendRedirect.bits.ftqIdx.value
-
-  ftbEntryMem.io.raddr.init.last := backendRedirect.bits.ftqIdx.value
+  ftqRedirectMem.io.raddr.init.last := backendRedirectAhead.bits.ftqIdx.value
+  ftbEntryMem.io.raddr.init.last := backendRedirectAhead.bits.ftqIdx.value
 
   val stage3CfiInfo = ftqRedirectMem.io.rdata.init.last
-  val fromBackendRedirect = WireInit(backendRedirectReg)
+  val fromBackendRedirect = WireInit(backendRedirect)
   val backendRedirectCfi = fromBackendRedirect.bits.cfiUpdate
   backendRedirectCfi.fromFtqRedirectMem(stage3CfiInfo)
 
@@ -924,6 +924,7 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
    * a part of logic from backend redirect.
    */
   backendRedirect := io.fromBackend.redirect
+  backendRedirectAhead := io.fromBackend.redirectAhead
 
   def extractRedirectInfo(wb: Valid[Redirect]) = {
     val ftqPtr = wb.bits.ftqIdx
@@ -957,8 +958,8 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
     }
   }
 
-  when(backendRedirectReg.valid) {
-    updateCfiInfo(backendRedirectReg)
+  when(backendRedirect.valid) {
+    updateCfiInfo(backendRedirect)
   }.elsewhen (ifuRedirectToBpu.valid) {
     updateCfiInfo(ifuRedirectToBpu, isBackend=false)
   }
@@ -1027,7 +1028,7 @@ class Ftq(parentName:String = "Unknown")(implicit p: Parameters) extends XSModul
    * Redirect to BPU.
    * Commit update to BPU.
    */
-
+  io.toBpu.redirctFromIFU := ifuRedirectToBpu.valid
   io.toBpu.redirect := Mux(fromBackendRedirect.valid, fromBackendRedirect, ifuRedirectToBpu)
 
   val mayHaveStallFromBpu = Wire(Bool())
