@@ -507,7 +507,7 @@ with HasCircularQueuePtrHelper with HasPerfEvents {
   // io.out.lastStageMeta := RegEnable(RegEnable(
   //   FTBMeta(writeWay.asUInt, s1_ftbHit, s1_uftbHitDup(dupForFtb), GTimer()).asUInt,
   //   io.s1_fire(dupForFtb)), io.s2_fire(dupForFtb))
-
+  io.out.s1_ftbCloseReq := s1_close_ftb_req
   io.out.s1_uftbHit := io.fauftb_entry_hit_in
   val s1_uftbHasIndirect = io.fauftb_entry_in.jmpValid &&
     io.fauftb_entry_in.isJalr && !io.fauftb_entry_in.isRet // uFTB determines that it's real JALR, RET and JAL are excluded
