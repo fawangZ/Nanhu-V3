@@ -43,6 +43,8 @@ import xs.utils.perf.HasPerfLogging
 class CtrlToFtqIO(implicit p: Parameters) extends XSBundle {
   val rob_commits = Vec(CommitWidth, Valid(new RobCommitInfo))
   val redirect = Valid(new Redirect)
+  
+  val redirectAhead = Valid(new Redirect)
 }
 
 class CtrlBlock(implicit p: Parameters) extends LazyModule with HasXSParameter {
@@ -175,6 +177,7 @@ class CtrlBlockImp(outer: CtrlBlock)(implicit p: Parameters) extends LazyModuleI
     io.frontend.toFtq.rob_commits(i).bits := RegEnable(rob.io.commits.info(i), is_commit)
   }
   private val redirectDelay = Pipe(io.redirectIn)
+  io.frontend.toFtq.redirectAhead := io.redirectIn
   io.frontend.toFtq.redirect := redirectDelay
   private val pendingRedirect = RegInit(false.B)
   when (redirectDelay.valid) {

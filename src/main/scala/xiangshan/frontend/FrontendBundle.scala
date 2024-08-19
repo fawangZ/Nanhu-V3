@@ -398,6 +398,7 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
   val offsets = UInt(log2Ceil(PredictWidth).W)
   val fallThroughAddr = UInt(VAddrBits.W)
   val fallThroughErr = Bool()
+  val multiHit = Bool()
 
   val isJal = Bool()
   val isJalr = Bool()
@@ -432,6 +433,7 @@ class FullBranchPrediction(implicit p: Parameters) extends XSBundle with HasBPUC
   }
 
   def fallThruError: Bool = hit && fallThroughErr
+  def ftbMultiHit: Bool = hit && multiHit
 
   def hitTakenOnJmp = realSlotTaken && !isBrSharing
   def hitTakenOnCall = hitTakenOnJmp && isCall
@@ -495,6 +497,7 @@ class BranchPredictionBundle(implicit p: Parameters) extends XSBundle
   def brTaken        = VecInit(fullPred.map(_.brTaken))
   def shouldShiftVec = VecInit(fullPred.map(_.shouldShiftVec))
   def fallThruError  = VecInit(fullPred.map(_.fallThruError))
+  def ftbMultiHit    = VecInit(fullPred.map(_.ftbMultiHit))
 
   def taken = VecInit(cfiIndex.map(_.valid))
 
@@ -510,6 +513,10 @@ class BranchPredictionResp(implicit p: Parameters) extends XSBundle with HasBPUC
   val lastStageMeta = UInt(MaxMetaLength.W)
   val lastStageSpecInfo = new SpeculativeInfo
   val lastStageFtbEntry = new FTBEntry
+  
+  val s1_uftbHit = Bool()
+  val s1_uftbHasIndirect = Bool()
+  val s1_ftbCloseReq = Bool()
 
   def selectedRespForFtq: BranchPredictionBundle ={
     val res =

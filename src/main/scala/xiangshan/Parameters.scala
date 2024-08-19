@@ -113,6 +113,9 @@ case class XSCoreParameters
       val preds = Seq(ubtb, tage, ftb, ittage, ras)
       preds.map(_.io := DontCare)
 
+
+      ftb.io.fauftb_entry_in  := ubtb.io.fauftb_entry_out
+      ftb.io.fauftb_entry_hit_in := ubtb.io.fauftb_entry_hit_out
       // ubtb.io.resp_in(0)  := resp_in
       // bim.io.resp_in(0)   := ubtb.io.resp
       // btb.io.resp_in(0)   := bim.io.resp
@@ -126,12 +129,12 @@ case class XSCoreParameters
 
       (preds, ras.io.out)
     }),
-  IBufSize: Int = 32,
+  IBufSize: Int = 48,
   IBufNBank: Int = 4,
   DecodeWidth: Int = 4,
   RenameWidth: Int = 4,
   CommitWidth: Int = 6,
-  FtqSize: Int = 48,
+  FtqSize: Int = 64,
   EnableLoadFastWakeUp: Boolean = true, // NOTE: not supported now, make it false
   NRPhyRegs: Int = 128,
   LoadQueueSize: Int = 80,
