@@ -104,6 +104,7 @@ class FauFTB(implicit p: Parameters) extends BasePredictor with FauFTBParams {
 
   ctrs zip s1_entry zip s1_predCandidate foreach { case((ctr, entry), pred) =>
     pred.hit := DontCare
+    pred.multiHit := false.B
     pred.br_taken := ctr(1) || entry.alwaysTaken
     pred.fromFtbEntry(entry, s1_pc)
   }
@@ -121,6 +122,16 @@ class FauFTB(implicit p: Parameters) extends BasePredictor with FauFTBParams {
 
   private val s1_ftbEntry = Mux1H(s1_hitOH, s1_entry)
   io.out.lastStageFtbEntry := RegEnable(RegEnable(s1_ftbEntry, io.s1_fire(dupForUbtb)), io.s2_fire(dupForUbtb))
+
+  val s1_hit_fauftbentry  = Mux1H(s1_hitOH, s1_entry)
+  io.fauftb_entry_out := s1_hit_fauftbentry
+  io.fauftb_entry_hit_out := s1_hit && fauftbEnable(0)
+
+  // Illegal check for FTB entry reading
+  val uftb_read_fallThrough = s1_hit_fauftbentry.getFallThrough(s1_pc_dup(0))
+  when(io.s1_fire(0) && s1_hit){
+    assert(s1_pc_dup(0) + (FetchWidth * 4).U >= uftb_read_fallThrough, s"FauFTB entry fallThrough address error!")
+  }
 
   for (i <- 1 until numDup) {
     XSError(io.out.s1.fullPred(i).asUInt =/= io.out.s1.fullPred(0).asUInt,

@@ -158,11 +158,25 @@ class TageBTable(parentName:String = "Unknown")(implicit p: Parameters) extends 
 
   val bimAddr = new TableAddr(log2Up(BtSize), instOffsetBits)
 
-  val bt = Module(new SRAMTemplate(UInt(2.W), set = BtSize, shouldReset = true, holdRead = true, bypassWrite = true,
-    hasMbist = coreParams.hasMbist,
-    hasShareBus = coreParams.hasShareBus,
-    parentName = parentName
-  ))
+  // val bt = Module(new SRAMTemplate(UInt(2.W), set = BtSize, shouldReset = true, holdRead = true, bypassWrite = true,
+  //   hasMbist = coreParams.hasMbist,
+  //   hasShareBus = coreParams.hasShareBus,
+  //   parentName = parentName
+  // ))
+  // Physical SRAM Size
+  val SRAMSize = 512
+  val foldWidth = BtSize / SRAMSize
+
+  val bt = Module(
+    new FoldedSRAMTemplate(
+      UInt(2.W),
+      set = BtSize,
+      width = foldWidth,
+      way = numBr,
+      shouldReset = false,
+      holdRead = true,
+      bypassWrite = true
+    ))
   val mbistPipeline = if(coreParams.hasMbist && coreParams.hasShareBus) {
     MBISTPipeline.PlaceMbistPipeline(1, s"${parentName}_mbistPipe", true)
   } else {
@@ -650,11 +664,11 @@ class Tage(val parentName:String = "Unknown")(implicit p: Parameters) extends Ba
     }
     dontTouch(tage_enable)
   }
-  for (tage_enable & fp & s3_tageTakens <- tage_enable_dup zip resp_s3.fullPred zip s3_tageTakens_dup) {
-    when (tage_enable) {
-      fp.br_taken := s3_tageTakens
-    }
-  }
+  // for (tage_enable & fp & s3_tageTakens <- tage_enable_dup zip resp_s3.fullPred zip s3_tageTakens_dup) {
+  //   when (tage_enable) {
+  //     fp.br_taken := s3_tageTakens
+  //   }
+  // }
 
   //---------------- update logics below ------------------//
   val hasUpdate = updateValids
